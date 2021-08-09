@@ -99,7 +99,7 @@ def UseRequestSecurityTicketForApiMiddleware(app, wsgi_env, start_response):
   Returns:
     A wrapped <app>, which is also a valid WSGI app.
   """
-  print("In middleware %s", UseRequestSecurityTicketForApiMiddleware.__name__)
+  print("In middleware", UseRequestSecurityTicketForApiMiddleware.__name__)
   try:
     default_api_stub.DefaultApiStub.SetUseRequestSecurityTicketForThread(True)
     return app(wsgi_env, start_response)
@@ -127,14 +127,14 @@ def WaitForResponseMiddleware(app, wsgi_env, start_response):
   Returns:
     A wrapped <app>, which is also a valid WSGI app.
   """
-  print("In middleware %s", WaitForResponseMiddleware.__name__)
+  print("In middleware", WaitForResponseMiddleware.__name__)
   return list(app(wsgi_env, start_response))
 
 
 @middleware
 def ErrorLoggingMiddleware(app, wsgi_env, start_response):
   """Catch and log unhandled errors for the given app."""
-  print("In middleware %s", ErrorLoggingMiddleware.__name__)
+  print("In middleware", ErrorLoggingMiddleware.__name__)
   try:
     return app(wsgi_env, start_response)
   except:
@@ -175,7 +175,7 @@ def _MakeRequestIdHash(log_id):
 @middleware
 def WsgiEnvSettingMiddleware(app, wsgi_env, start_response):
   """Initialize wsgi_env with reasonable values derived from HTTP headers."""
-  print("In middleware %s", WsgiEnvSettingMiddleware.__name__)
+  print("In middleware", WsgiEnvSettingMiddleware.__name__)
   https = wsgi_env.get('HTTP_X_APPENGINE_HTTPS')
   if https is not None:
     wsgi_env['HTTPS'] = https
@@ -217,7 +217,7 @@ def WsgiEnvSettingMiddleware(app, wsgi_env, start_response):
 @middleware
 def SetContextFromHeadersMiddleware(app, wsgi_env, start_response):
   """Set the contextvars from the X_APPENGINE headers."""
-  print("In middleware %s", SetContextFromHeadersMiddleware.__name__)
+  print("In middleware", SetContextFromHeadersMiddleware.__name__)
   context.init_from_wsgi_environ(wsgi_env)
   return app(wsgi_env, start_response)
 
@@ -225,7 +225,7 @@ def SetContextFromHeadersMiddleware(app, wsgi_env, start_response):
 @middleware
 def OverrideHttpHeadersFromOsEnvironMiddleware(app, wsgi_env, start_response):
   """Override certain HTTP headers with env vars for testing."""
-  print("In middleware %s", OverrideHttpHeadersFromOsEnvironMiddleware.__name__)
+  print("In middleware", OverrideHttpHeadersFromOsEnvironMiddleware.__name__)
 
   for key in LOCAL_OVERRIDABLE_VARS:
     val = os.environ.get(key)
@@ -237,7 +237,7 @@ def OverrideHttpHeadersFromOsEnvironMiddleware(app, wsgi_env, start_response):
 @middleware
 def LegacyWsgiRemoveXAppenginePrefixMiddleware(app, wsgi_env, start_response):
   """Reset HTTP_X_APPENGINE_<foo> as just <foo>."""
-  print("In middleware %s", LegacyWsgiRemoveXAppenginePrefixMiddleware.__name__)
+  print("In middleware", LegacyWsgiRemoveXAppenginePrefixMiddleware.__name__)
 
   wsgi_env.setdefault('HTTP_X_APPENGINE_AUTH_DOMAIN', 'gmail.com')
   wsgi_env.setdefault('HTTP_X_APPENGINE_USER_IS_ADMIN', '0')
@@ -254,7 +254,7 @@ def MakeLegacyWsgiEnvSettingMiddleware(threadsafe=None):
   @middleware
   def LegacyWsgiEnvSettingMiddleware(app, wsgi_env, start_response):
 
-    print("In middleware %s", LegacyWsgiEnvSettingMiddleware.__name__)
+    print("In middleware", LegacyWsgiEnvSettingMiddleware.__name__)
 
     wsgi_env['CLOUD_TRACE_ENABLE_STACK_TRACE'] = ''
     if 'GAE_RUNTIME' in os.environ:
@@ -300,7 +300,7 @@ def MakeInitLegacyRequestOsEnvironMiddleware():
 
 
 
-    print("In middleware %s", InitLegacyRequestOsEnvironMiddleware.__name__)
+    print("In middleware", InitLegacyRequestOsEnvironMiddleware.__name__)
 
 
     request_environment.current_request.Init(
@@ -328,7 +328,7 @@ def LegacyCopyWsgiEnvToOsEnvMiddleware(app, wsgi_env, start_response):
   Returns:
     The wrapped app, also a WSGI app.
   """
-  print("In middleware %s", LegacyCopyWsgiEnvToOsEnvMiddleware.__name__)
+  print("In middleware", LegacyCopyWsgiEnvToOsEnvMiddleware.__name__)
 
   assert isinstance(os.environ, request_environment.RequestLocalEnviron)
   for key, val in six.iteritems(wsgi_env):
@@ -340,7 +340,7 @@ def LegacyCopyWsgiEnvToOsEnvMiddleware(app, wsgi_env, start_response):
 @middleware
 def CallbackMiddleware(app, wsgi_env, start_response):
   """Calls the request-end callback that the app may have set."""
-  print("In middleware %s", CallbackMiddleware.__name__)
+  print("In middleware", CallbackMiddleware.__name__)
 
   try:
     return app(wsgi_env, start_response)
@@ -365,7 +365,7 @@ def RunInNewContextMiddleware(app, wsgi_env, start_response):
   Returns:
     The wrapped WSGI app
   """
-  print("In middleware %s", RunInNewContextMiddleware.__name__)
+  print("In middleware", RunInNewContextMiddleware.__name__)
 
   ctx = contextvars.copy_context()
   return ctx.run(app, wsgi_env, start_response)
