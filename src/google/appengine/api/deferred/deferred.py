@@ -303,6 +303,7 @@ def deferred_task_run(environ, start_response):
   yield "Success"
 
 def testblah():
+  print("testblah called")
   return "blah"
 
 def execute_deferred_task(environ, start_response):
@@ -310,6 +311,7 @@ def execute_deferred_task(environ, start_response):
     print("starting execute_deferred_task environ:", environ)
     # deferred_task_run(environ, start_response)
     testblah()
+    print("try blah done")
   except SingularTaskFailure:
     print("SingularTaskFailure")
     start_response("408 SingularTaskFailure", [])
@@ -328,6 +330,7 @@ def execute_deferred_task(environ, start_response):
     start_response("500 Unknown Error", [])
     yield "Unknown error"
   
+  print("blah done")
   start_response("200 OK", [])
   yield "Blah response"
 
