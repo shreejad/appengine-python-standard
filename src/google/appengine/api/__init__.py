@@ -77,7 +77,7 @@ def wrap_wsgi_app(app, use_legacy_context_mode=True):
           middlewares.LegacyWsgiRemoveXAppenginePrefixMiddleware,
           middlewares.LegacyCopyWsgiEnvToOsEnvMiddleware,
       ]) + [
+          middlewares.AddDeferredMiddleware,
           middlewares.ErrorLoggingMiddleware,
           middlewares.BackgroundAndShutdownMiddleware,
-          middlewares.AddDeferredMiddleware,
       ])

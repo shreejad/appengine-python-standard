@@ -315,4 +315,7 @@ def execute_deferred_task(environ, start_response):
     start_response("200 PermanentTaskFailure", [])
     yield "PermanentTaskFailure"
     logging.exception("Permanent failure attempting to execute task")
+  except:
+    start_response("500 Unknown Error", [])
+    yield "Unknown error"
 
