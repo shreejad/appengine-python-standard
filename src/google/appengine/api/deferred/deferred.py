@@ -264,7 +264,7 @@ def defer(obj, *args, **kwargs):
 def execute_deferred_task(wsgi_env, start_response_call):
   def deferred_task_run(environ, start_response):
     print("deferred_task_run called.")
-    return
+
     # Protect against XSRF attacks
     if "HTTP_X_APPENGINE_TASKNAME" not in environ:
       logging.error("Detected an attempted XSRF attack. The header "
@@ -301,9 +301,14 @@ def execute_deferred_task(wsgi_env, start_response_call):
     start_response("200 OK", [])
     yield "Success"
   
+  def test_blah():
+    print("testing blah entered")
+    return
+
   try:
     print("starting execute_deferred_task environ:", wsgi_env)
-    deferred_task_run(wsgi_env, start_response_call)
+    # deferred_task_run(wsgi_env, start_response_call)
+    test_blah()
     print("deferred_task_run done")
   except SingularTaskFailure:
     print("SingularTaskFailure")
