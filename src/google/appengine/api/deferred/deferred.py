@@ -261,56 +261,50 @@ def defer(obj, *args, **kwargs):
     return task.add(queue)
 
 
-def deferred_task_run(environ, start_response):
-  """Default behavior for POST requests to deferred handler."""
-
-  print("_execute_deferred_task environ:", environ)
-
-  # Protect against XSRF attacks
-  if "HTTP_X_APPENGINE_TASKNAME" not in environ:
-    logging.error("Detected an attempted XSRF attack. The header "
-                  '"X-AppEngine-Taskname" was not set.')
-    start_response("403 Forbidden", [])
-    yield "Detected an attempted XSRF attack. The header X-AppEngine-Taskname was not set."
-
-  # Since administrators of an app can set the X-AppEngine-TaskName header, we
-  # also ensure that this task comes from the TaskQueue IP address.
-  in_prod = (
-      not environ.get("SERVER_SOFTWARE").startswith("Devel"))
-  if in_prod and environ.get("REMOTE_ADDR") != "0.1.0.2":
-      logging.error("Detected an attempted XSRF attack. This request did "
-                  "not originate from Task Queue.")
-      start_response("403 Forbidden", [])
-      yield "Detected an attempted XSRF attack. This request did not originate from Task Queue."
-
-  # Log some information about the task we're executing
-  headers = [
-      "%s:%s" % (k[5:], v)
-      for k, v in environ.items()
-      if k.upper().startswith("HTTP_X_APPENGINE_")
-  ]
-  logging.log(_DEFAULT_LOG_LEVEL, ", ".join(headers))
-
-  # the environment variable CONTENT_LENGTH may be empty or missing
-  try:
-    request_body_size = int(environ.get('CONTENT_LENGTH', 0))
-  except (ValueError):
-    request_body_size = 0
-
-  request_body = environ['wsgi.input'].read(request_body_size)
-  run(request_body)
-  start_response("200 OK", [])
-  yield "Success"
-
 def execute_deferred_task(environ, start_response):
-  def testblah():
-    print("testblah called")
+  def deferred_task_run(environ, start_response):
+    print("_execute_deferred_task environ:", environ)
+
+    # Protect against XSRF attacks
+    if "HTTP_X_APPENGINE_TASKNAME" not in environ:
+      logging.error("Detected an attempted XSRF attack. The header "
+                    '"X-AppEngine-Taskname" was not set.')
+      start_response("403 Forbidden", [])
+      yield "Detected an attempted XSRF attack. The header X-AppEngine-Taskname was not set."
+
+    # Since administrators of an app can set the X-AppEngine-TaskName header, we
+    # also ensure that this task comes from the TaskQueue IP address.
+    in_prod = (
+        not environ.get("SERVER_SOFTWARE").startswith("Devel"))
+    if in_prod and environ.get("REMOTE_ADDR") != "0.1.0.2":
+        logging.error("Detected an attempted XSRF attack. This request did "
+                    "not originate from Task Queue.")
+        start_response("403 Forbidden", [])
+        yield "Detected an attempted XSRF attack. This request did not originate from Task Queue."
+
+    # Log some information about the task we're executing
+    headers = [
+        "%s:%s" % (k[5:], v)
+        for k, v in environ.items()
+        if k.upper().startswith("HTTP_X_APPENGINE_")
+    ]
+    logging.log(_DEFAULT_LOG_LEVEL, ", ".join(headers))
+
+    # the environment variable CONTENT_LENGTH may be empty or missing
+    try:
+      request_body_size = int(environ.get('CONTENT_LENGTH', 0))
+    except (ValueError):
+      request_body_size = 0
+
+    request_body = environ['wsgi.input'].read(request_body_size)
+    run(request_body)
+    start_response("200 OK", [])
+    yield "Success"
   
   try:
     print("starting execute_deferred_task environ:", environ)
-    # deferred_task_run(environ, start_response)
-    testblah()
-    print("try blah done")
+    deferred_task_run(environ, start_response)
+    print("deferred_task_run done")
   except SingularTaskFailure:
     print("SingularTaskFailure")
     start_response("408 SingularTaskFailure", [])
@@ -329,8 +323,8 @@ def execute_deferred_task(environ, start_response):
     start_response("500 Unknown Error", [])
     response = "Unknown error"
   else:
-    print("blah done")
+    print("deferred_task_run done")
     start_response("200 OK", [])
-    response = "Blah response"
+    response = "deferred_task_run response"
   yield response.encode('utf-8')
 
