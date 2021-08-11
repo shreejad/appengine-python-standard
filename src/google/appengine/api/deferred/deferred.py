@@ -69,6 +69,7 @@ Example usage::
 # information in docstrings.  If you must communicate internal information in
 # this source file, please place them in comments only.
 
+from cgi import test
 import logging
 import os
 import pickle
@@ -301,10 +302,14 @@ def deferred_task_run(environ, start_response):
   start_response("200 OK", [])
   yield "Success"
 
+def testblah():
+  return "blah"
+
 def execute_deferred_task(environ, start_response):
   try:
     print("starting execute_deferred_task environ:", environ)
-    deferred_task_run(environ, start_response)
+    # deferred_task_run(environ, start_response)
+    testblah()
   except SingularTaskFailure:
     print("SingularTaskFailure")
     start_response("408 SingularTaskFailure", [])
@@ -322,4 +327,7 @@ def execute_deferred_task(environ, start_response):
     print("Generic failure")
     start_response("500 Unknown Error", [])
     yield "Unknown error"
+  
+  start_response("200 OK", [])
+  yield "Blah response"
 
