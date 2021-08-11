@@ -302,11 +302,10 @@ def deferred_task_run(environ, start_response):
   start_response("200 OK", [])
   yield "Success"
 
-def testblah():
-  print("testblah called")
-  return "blah"
-
 def execute_deferred_task(environ, start_response):
+  def testblah():
+    print("testblah called")
+  
   try:
     print("starting execute_deferred_task environ:", environ)
     # deferred_task_run(environ, start_response)
