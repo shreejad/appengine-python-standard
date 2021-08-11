@@ -263,7 +263,7 @@ def defer(obj, *args, **kwargs):
 def _execute_deferred_task(environ, start_response):
   """Default behavior for POST requests to deferred handler."""
 
-  print(environ)
+  print("_execute_deferred_task environ:", environ)
 
   # Protect against XSRF attacks
   if "HTTP_X-APPENGINE-TASKNAME" not in environ:
@@ -303,19 +303,23 @@ def _execute_deferred_task(environ, start_response):
 
 def execute_deferred_task(environ, start_response):
   try:
+    print("starting execute_deferred_task")
     _execute_deferred_task(environ, start_response)
   except SingularTaskFailure:
+    print("SingularTaskFailure")
     start_response("408 SingularTaskFailure", [])
     yield "SingularTaskFailure occurred"
     # Catch a SingularTaskFailure. Intended for users to be able to force a
     # task retry without causing an error.
     logging.debug("Failure executing task, task retry forced")
   except PermanentTaskFailure:
+    print("PermanentTaskFailure")
     # Catch this so we return a 200 and don't retry the task.
     start_response("200 PermanentTaskFailure", [])
     yield "PermanentTaskFailure"
     logging.exception("Permanent failure attempting to execute task")
   except:
+    print("Generic failure")
     start_response("500 Unknown Error", [])
     yield "Unknown error"
 

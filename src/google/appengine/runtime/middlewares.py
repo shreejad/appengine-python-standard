@@ -408,7 +408,9 @@ def AddDeferredMiddleware(app, wsgi_env, start_response):
   print(wsgi_env)
   path = wsgi_env['PATH_INFO']
   if (path == '/_ah/queue/deferred'):
+    print("inside deferred path")
     return deferred.execute_deferred_task(wsgi_env, start_response)
+  print("outside deferred path")
   return app(wsgi_env, start_response)
 
 def error(message):
