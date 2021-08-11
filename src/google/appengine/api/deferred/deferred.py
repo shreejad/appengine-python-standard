@@ -263,8 +263,8 @@ def defer(obj, *args, **kwargs):
 
 def execute_deferred_task(environ, start_response):
   def deferred_task_run(environ, start_response):
-    print("_execute_deferred_task environ:", environ)
-
+    print("deferred_task_run called.")
+    return
     # Protect against XSRF attacks
     if "HTTP_X_APPENGINE_TASKNAME" not in environ:
       logging.error("Detected an attempted XSRF attack. The header "
