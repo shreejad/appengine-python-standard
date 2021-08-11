@@ -5,4 +5,4 @@
 # information in docstrings.  If you must communicate internal information in
 # this source file, please place them in comments only.
 
-from google.appengine.ext.deferred.deferred import *
+from google.appengine.api.deferred.deferred import *

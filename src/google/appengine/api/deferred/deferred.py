@@ -75,7 +75,6 @@ import pickle
 import types
 from google.appengine.api import taskqueue
 from google.appengine.ext import db
-from google.appengine.ext import webapp
 
 
 _DEFAULT_LOG_LEVEL = logging.INFO
