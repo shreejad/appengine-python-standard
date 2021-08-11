@@ -261,7 +261,7 @@ def defer(obj, *args, **kwargs):
     return task.add(queue)
 
 
-def execute_deferred_task(environ, start_response):
+def execute_deferred_task(wsgi_env, start_response_call):
   def deferred_task_run(environ, start_response):
     print("deferred_task_run called.")
     return
@@ -302,12 +302,12 @@ def execute_deferred_task(environ, start_response):
     yield "Success"
   
   try:
-    print("starting execute_deferred_task environ:", environ)
-    deferred_task_run(environ, start_response)
+    print("starting execute_deferred_task environ:", wsgi_env)
+    deferred_task_run(wsgi_env, start_response_call)
     print("deferred_task_run done")
   except SingularTaskFailure:
     print("SingularTaskFailure")
-    start_response("408 SingularTaskFailure", [])
+    start_response_call("408 SingularTaskFailure", [])
     response = "SingularTaskFailure occurred"
     # Catch a SingularTaskFailure. Intended for users to be able to force a
     # task retry without causing an error.
@@ -315,16 +315,16 @@ def execute_deferred_task(environ, start_response):
   except PermanentTaskFailure:
     print("PermanentTaskFailure")
     # Catch this so we return a 200 and don't retry the task.
-    start_response("200 PermanentTaskFailure", [])
+    start_response_call("200 PermanentTaskFailure", [])
     response = "PermanentTaskFailure"
     logging.exception("Permanent failure attempting to execute task")
   except:
     print("Generic failure")
-    start_response("500 Unknown Error", [])
+    start_response_call("500 Unknown Error", [])
     response = "Unknown error"
   else:
     print("deferred_task_run done")
-    start_response("200 OK", [])
+    start_response_call("200 OK", [])
     response = "deferred_task_run response"
   yield response.encode('utf-8')
 
