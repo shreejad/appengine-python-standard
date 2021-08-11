@@ -260,6 +260,9 @@ def defer(obj, *args, **kwargs):
     task = taskqueue.Task(payload=pickled, **taskargs)
     return task.add(queue)
 
+def deferred_task_run():
+  print("testing blah entered")
+  return
 
 def execute_deferred_task(environ, start_response):
   def deferred_task_runqq():
@@ -300,10 +303,6 @@ def execute_deferred_task(environ, start_response):
     run(request_body)
     start_response("200 OK", [])
     yield "Success"
-  
-  def deferred_task_run():
-    print("testing blah entered")
-    return
 
   try:
     print("starting execute_deferred_task environ:", environ)
