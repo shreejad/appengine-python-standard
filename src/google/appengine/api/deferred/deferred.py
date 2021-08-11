@@ -270,7 +270,7 @@ def _execute_deferred_task(environ, start_response):
     logging.error("Detected an attempted XSRF attack. The header "
                   '"X-AppEngine-Taskname" was not set.')
     start_response("403 Forbidden", [])
-    return
+    yield "Detected an attempted XSRF attack. The header X-AppEngine-Taskname was not set."
 
   # Since administrators of an app can set the X-AppEngine-TaskName header, we
   # also ensure that this task comes from the TaskQueue IP address.
@@ -280,7 +280,7 @@ def _execute_deferred_task(environ, start_response):
       logging.error("Detected an attempted XSRF attack. This request did "
                   "not originate from Task Queue.")
       start_response("403 Forbidden", [])
-      return
+      yield "Detected an attempted XSRF attack. This request did not originate from Task Queue."
 
   # Log some information about the task we're executing
   headers = [
@@ -303,7 +303,7 @@ def _execute_deferred_task(environ, start_response):
 
 def execute_deferred_task(environ, start_response):
   try:
-    _execute_deferred_task()
+    _execute_deferred_task(environ, start_response)
   except SingularTaskFailure:
     # Catch a SingularTaskFailure. Intended for users to be able to force a
     # task retry without causing an error.
