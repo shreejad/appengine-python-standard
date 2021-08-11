@@ -405,7 +405,7 @@ def AddDeferredMiddleware(app, wsgi_env, start_response):
     The wrapped WSGI app
   """
   print("In middleware", AddDeferredMiddleware.__name__)
-
+  print(wsgi_env)
   path = wsgi_env['PATH_INFO']
   if (path == '/_ah/queue/deferred'):
     return deferred.execute_deferred_task(wsgi_env, start_response)
