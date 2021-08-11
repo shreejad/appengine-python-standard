@@ -298,21 +298,21 @@ def _execute_deferred_task(environ, start_response):
 
   request_body = environ['wsgi.input'].read(request_body_size)
   run(request_body)
-  start_response("200 Success", [])
+  start_response("200 OK", [])
   yield "Success"
 
 def execute_deferred_task(environ, start_response):
   try:
     _execute_deferred_task(environ, start_response)
   except SingularTaskFailure:
+    start_response("408 SingularTaskFailure", [])
+    yield "SingularTaskFailure occurred"
     # Catch a SingularTaskFailure. Intended for users to be able to force a
     # task retry without causing an error.
     logging.debug("Failure executing task, task retry forced")
-    start_response("408 SingularTaskFailure", [])
-    yield "SingularTaskFailure occurred"
   except PermanentTaskFailure:
     # Catch this so we return a 200 and don't retry the task.
-    logging.exception("Permanent failure attempting to execute task")
     start_response("200 PermanentTaskFailure", [])
     yield "PermanentTaskFailure"
+    logging.exception("Permanent failure attempting to execute task")
 
