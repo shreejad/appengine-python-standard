@@ -261,7 +261,7 @@ def defer(obj, *args, **kwargs):
     return task.add(queue)
 
 def deferred_task_run():
-  print("testing blah entered")
+  print("test blah entered")
   return
 
 def execute_deferred_task(environ, start_response):
