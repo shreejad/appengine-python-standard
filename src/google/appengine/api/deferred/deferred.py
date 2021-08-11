@@ -260,13 +260,13 @@ def defer(obj, *args, **kwargs):
     return task.add(queue)
 
 
-def _execute_deferred_task(environ, start_response):
+def deferred_task_run(environ, start_response):
   """Default behavior for POST requests to deferred handler."""
 
   print("_execute_deferred_task environ:", environ)
 
   # Protect against XSRF attacks
-  if "HTTP_X-APPENGINE-TASKNAME" not in environ:
+  if "HTTP_X_APPENGINE_TASKNAME" not in environ:
     logging.error("Detected an attempted XSRF attack. The header "
                   '"X-AppEngine-Taskname" was not set.')
     start_response("403 Forbidden", [])
@@ -286,7 +286,7 @@ def _execute_deferred_task(environ, start_response):
   headers = [
       "%s:%s" % (k[5:], v)
       for k, v in environ.items()
-      if k.upper().startswith("HTTP_X-APPENGINE-")
+      if k.upper().startswith("HTTP_X_APPENGINE_")
   ]
   logging.log(_DEFAULT_LOG_LEVEL, ", ".join(headers))
 
@@ -303,8 +303,8 @@ def _execute_deferred_task(environ, start_response):
 
 def execute_deferred_task(environ, start_response):
   try:
-    print("starting execute_deferred_task")
-    _execute_deferred_task(environ, start_response)
+    print("starting execute_deferred_task environ:", environ)
+    deferred_task_run(environ, start_response)
   except SingularTaskFailure:
     print("SingularTaskFailure")
     start_response("408 SingularTaskFailure", [])
