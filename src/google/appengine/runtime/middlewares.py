@@ -410,9 +410,11 @@ def AddDeferredMiddleware(app, wsgi_env, start_response):
   if (path == '/_ah/queue/deferred' and request_method == 'POST'):
     status, headers, response = deferred.execute_deferred_task(wsgi_env)
     start_response(status, headers)
-    return response
+    return [bytes(response, 'utf-8')]
   elif (path == '/_ah/queue/yielded' and request_method == 'POST'):
-    return deferred.execute_deferred_task_yield(wsgi_env, start_response)
+    return [
+      bytes(deferred.execute_deferred_task_yield(wsgi_env, start_response),
+      'utf-8')]
   return app(wsgi_env, start_response)
 
 
