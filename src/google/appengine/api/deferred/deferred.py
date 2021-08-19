@@ -333,3 +333,7 @@ def execute_deferred_task(environ):
     logging.exception("Permanent failure attempting to execute task")
   return status, headers, response.encode("utf-8")
 
+def execute_deferred_task_yield(environ, start_response):
+    status, headers, response = _deferred_task_run(environ)
+    start_response(status, headers)
+    yield response
