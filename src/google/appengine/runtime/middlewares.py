@@ -402,20 +402,17 @@ def AddDeferredMiddleware(app, wsgi_env, start_response):
     wsgi_env: see PEP 3333
     start_response: see PEP 3333
   Returns:
-    The wrapped WSGI app
+    The wrapped WSGI app response
   """
-  print("In middleware", AddDeferredMiddleware.__name__)
   print(wsgi_env)
   path = wsgi_env['PATH_INFO']
-  if (path == '/_ah/queue/deferred'):
-    print("inside deferred path")
-    return deferred.execute_deferred_task(wsgi_env, start_response)
-  print("outside deferred path")
+  request_method = wsgi_env['REQUEST_METHOD']
+  if (path == '/_ah/queue/deferred' and request_method == 'POST'):
+    status, headers, response = deferred.execute_deferred_task(wsgi_env)
+    start_response(status, headers)
+    return response
   return app(wsgi_env, start_response)
 
-def error(message):
-  print(message)
-  logging.error(message)
 
 
   

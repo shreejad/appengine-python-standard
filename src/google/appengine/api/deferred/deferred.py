@@ -260,25 +260,25 @@ def defer(obj, *args, **kwargs):
     task = taskqueue.Task(payload=pickled, **taskargs)
     return task.add(queue)
 
-def _deferred_task_run(environ, start_response):
-  print("deferred_task_run called.")
 
+def _deferred_task_run(environ):
+  """Executes deferred tasks after verifying the caller."""
   # Protect against XSRF attacks
   if "HTTP_X_APPENGINE_TASKNAME" not in environ:
-    logging.error("Detected an attempted XSRF attack. The header "
-                  '"X-AppEngine-Taskname" was not set.')
-    start_response("403 Forbidden", [])
-    return "Detected an attempted XSRF attack. The header X-AppEngine-Taskname was not set."
+    error_message = ("Detected an attempted XSRF attack. "
+                     "The header 'X-AppEngine-Taskname' was not set.")
+    logging.error(error_message)
+    return "403 Forbidden", [_TASKQUEUE_RESPONSE_HEADERS], error_message
 
   # Since administrators of an app can set the X-AppEngine-TaskName header, we
   # also ensure that this task comes from the TaskQueue IP address.
   in_prod = (
       not environ.get("SERVER_SOFTWARE").startswith("Devel"))
   if in_prod and environ.get("REMOTE_ADDR") != "0.1.0.2":
-      logging.error("Detected an attempted XSRF attack. This request did "
-                  "not originate from Task Queue.")
-      start_response("403 Forbidden", [])
-      return "Detected an attempted XSRF attack. This request did not originate from Task Queue."
+    error_message = ("Detected an attempted XSRF attack. "
+                     "This request did not originate from Task Queue.")
+    logging.error(error_message)
+    return "403 Forbidden", [_TASKQUEUE_RESPONSE_HEADERS], error_message
 
   # Log some information about the task we're executing
   headers = [
@@ -290,37 +290,45 @@ def _deferred_task_run(environ, start_response):
 
   # the environment variable CONTENT_LENGTH may be empty or missing
   try:
-    request_body_size = int(environ.get('CONTENT_LENGTH', 0))
-  except (ValueError):
+    request_body_size = int(environ.get("CONTENT_LENGTH", 0))
+  except ValueError:
     request_body_size = 0
 
-  request_body = environ['wsgi.input'].read(request_body_size)
+  request_body = environ["wsgi.input"].read(request_body_size)
   run(request_body)
-  start_response("200 OK", [])
-  return "Success"
+  return "200 OK", [_TASKQUEUE_RESPONSE_HEADERS], "Success"
 
-def execute_deferred_task(environ, start_response):
+
+def execute_deferred_task(environ):
+  """Default behavior for POST requests to the deferred endpoint.
+
+  This function is expected to be automatically called by the bundled WSGI
+  middleware, when the TaskQueue service calls the default Deferred URL
+  '/_ah/queue/deferred' to process deferred tasks. To use a custom URL for
+  processing deferred tasks, this function can be called from the new endpoint
+  handler, and passed the WSGI 'environ' dictionary (see PEP 333).
+
+  Args:
+    environ: a dict describing the HTTP request (WSGI convention - see PEP 333)
+  Returns:
+    status: a string containing an HTTP status code and a reason phrase-"200 OK"
+    headers: a dict containing response headers
+    response: a string containing body of the response
+  """
   try:
-    print("starting execute_deferred_task environ:", environ)
-    response = _deferred_task_run(environ, start_response)
+    status, headers, response = _deferred_task_run(environ)
   except SingularTaskFailure:
-    print("SingularTaskFailure")
-    start_response("408 SingularTaskFailure", [])
-    response = "SingularTaskFailure occurred"
     # Catch a SingularTaskFailure. Intended for users to be able to force a
     # task retry without causing an error.
+    status, headers, response = ("408 SingularTaskFailure",
+                                 [_TASKQUEUE_RESPONSE_HEADERS
+                                 ], "SingularTaskFailure")
     logging.debug("Failure executing task, task retry forced")
   except PermanentTaskFailure:
-    print("PermanentTaskFailure")
     # Catch this so we return a 200 and don't retry the task.
-    start_response("200 PermanentTaskFailure", [])
-    response = "PermanentTaskFailure"
+    status, headers, response = ("200 PermanentTaskFailure",
+                                 [_TASKQUEUE_RESPONSE_HEADERS
+                                 ], "PermanentTaskFailure")
     logging.exception("Permanent failure attempting to execute task")
-  except:
-    print("Generic failure")
-    start_response("500 Unknown Error", [])
-    response = "Unknown error"
-  else:
-    print("deferred_task_run done")
-  yield response.encode('utf-8')
+  return status, headers, response.encode("utf-8")
 
