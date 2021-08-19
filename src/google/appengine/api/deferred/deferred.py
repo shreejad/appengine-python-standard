@@ -80,6 +80,7 @@ from google.appengine.ext import db
 
 _DEFAULT_LOG_LEVEL = logging.INFO
 _TASKQUEUE_HEADERS = {"Content-Type": "application/octet-stream"}
+_TASKQUEUE_RESPONSE_HEADERS = ("Content-Type", "text/plain")
 _DEFAULT_URL = "/_ah/queue/deferred"
 _DEFAULT_QUEUE = "default"
 
