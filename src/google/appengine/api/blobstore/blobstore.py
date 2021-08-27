@@ -527,3 +527,5 @@ def create_gs_key_async(filename, rpc=None):
   return _make_async_call(rpc, 'CreateEncodedGoogleStorageKey', request,
                           response,
                           _get_result_hook, lambda rpc: rpc.response.blob_key)
+
+# Blobstore handler helpers to be provided

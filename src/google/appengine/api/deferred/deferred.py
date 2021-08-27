@@ -40,15 +40,8 @@ original task from the datastore and execute it. This is much less efficient
 than the direct execution model, so it's a good idea to minimize the size of
 your tasks when possible.
 
-In order for tasks to be processed, you need to set up the handler. Add the
-following to your app.yaml handlers section:
-
-handlers:
-- url: /_ah/queue/deferred
-  script: $PYTHON_LIB/google/appengine/ext/deferred/handler.py
-  login: admin
-
-By default, the deferred module uses the URL above, and the default queue.
+By default, the deferred module uses the URL '/_ah/queue/deferred',
+and the default queue.
 
 Example usage::
 
@@ -69,9 +62,10 @@ Example usage::
 # information in docstrings.  If you must communicate internal information in
 # this source file, please place them in comments only.
 
-from cgi import test
+__author__ = "nickjohnson@google.com (Nick Johnson)"
+
+import http
 import logging
-import os
 import pickle
 import types
 from google.appengine.api import taskqueue
@@ -115,6 +109,9 @@ def run(data):
 
   Returns:
     The return value of the function invocation.
+
+  Raises:
+    PermanentTaskFailure if an error occurred during unpickling the task.
   """
   try:
     func, args, kwds = pickle.loads(data)
@@ -141,6 +138,9 @@ def run_from_datastore(key):
 
   Returns:
     The return value of the function invocation.
+
+  Raises:
+    PermanentTaskFailure: Raised if the task entity is missing.
   """
   entity = _DeferredTaskEntity.get(key)
   if not entity:
@@ -160,8 +160,8 @@ def invoke_member(obj, membername, *args, **kwargs):
   Args:
     obj: The object to operate on.
     membername: The name of the member to retrieve from ojb.
-    args: Positional arguments to pass to the method.
-    kwargs: Keyword arguments to pass to the method.
+    *args: Positional arguments to pass to the method.
+    **kwargs: Keyword arguments to pass to the method.
 
   Returns:
     The return value of the method invocation.
@@ -177,8 +177,8 @@ def _curry_callable(obj, *args, **kwargs):
 
   Args:
     obj: The callable to curry. See the module docstring for restrictions.
-    args: Positional arguments to call the callable with.
-    kwargs: Keyword arguments to call the callable with.
+    *args: Positional arguments to call the callable with.
+    **kwargs: Keyword arguments to call the callable with.
 
   Returns:
     A tuple consisting of  (callable, args, kwargs) that can be evaluated by
@@ -213,8 +213,8 @@ def serialize(obj, *args, **kwargs):
 
   Args:
     obj: The callable to serialize. See module docstring for restrictions.
-    args: Positional arguments to call the callable with.
-    kwargs: Keyword arguments to call the callable with.
+    *args: Positional arguments to call the callable with.
+    **kwargs: Keyword arguments to call the callable with.
 
   Returns:
     A serialized representation of the callable.
@@ -236,8 +236,8 @@ def defer(obj, *args, **kwargs):
       _countdown, _eta, _headers, _name, _target, _transactional, _url,
         _retry_options, _queue: Passed through to the task queue - see the task
           queue documentation for details.
-    args: Positional arguments to call the callable with.
-    kwargs: Any other keyword arguments are passed through to the callable.
+    *args: Positional arguments to call the callable with.
+    **kwargs: Any other keyword arguments are passed through to the callable.
 
   Returns:
     A taskqueue.Task object which represents an enqueued callable.
@@ -262,78 +262,124 @@ def defer(obj, *args, **kwargs):
     return task.add(queue)
 
 
-def _deferred_task_run(environ):
-  """Executes deferred tasks after verifying the caller."""
-  # Protect against XSRF attacks
-  if "HTTP_X_APPENGINE_TASKNAME" not in environ:
-    error_message = ("Detected an attempted XSRF attack. "
-                     "The header 'X-AppEngine-Taskname' was not set.")
-    logging.error(error_message)
-    return "403 Forbidden", [_TASKQUEUE_RESPONSE_HEADERS], error_message
+class Handler():
+  """A handler class for processesing deferred invocations."""
 
-  # Since administrators of an app can set the X-AppEngine-TaskName header, we
-  # also ensure that this task comes from the TaskQueue IP address.
-  in_prod = (
-      not environ.get("SERVER_SOFTWARE").startswith("Devel"))
-  if in_prod and environ.get("REMOTE_ADDR") != "0.1.0.2":
-    error_message = ("Detected an attempted XSRF attack. "
-                     "This request did not originate from Task Queue.")
-    logging.error(error_message)
-    return "403 Forbidden", [_TASKQUEUE_RESPONSE_HEADERS], error_message
+  def run_from_request(self, environ):
+    """Executes deferred tasks after verifying the caller.
 
-  # Log some information about the task we're executing
-  headers = [
-      "%s:%s" % (k[5:], v)
-      for k, v in environ.items()
-      if k.upper().startswith("HTTP_X_APPENGINE_")
-  ]
-  logging.log(_DEFAULT_LOG_LEVEL, ", ".join(headers))
+    This function assumes that the WSGI environ dict originated from a POST
+    request by the GAE TaskQueue service. It checks the caller IP and request
+    headers to verify the caller.
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333).
+    Returns:
+      status: HTTP status code of enum type http.HTTPStatus
+      headers: a dict containing response headers
+      response: a string containing body of the response
+    Raises:
+      PermanentTaskFailure if an error occurred during unpickling the task.
+    """
+    # Protect against XSRF attacks
+    if "HTTP_X_APPENGINE_TASKNAME" not in environ:
+      error_message = ("Detected an attempted XSRF attack. "
+                       "The header 'X-AppEngine-Taskname' was not set.")
+      logging.error(error_message)
+      return http.HTTPStatus.FORBIDDEN, [_TASKQUEUE_RESPONSE_HEADERS
+                                        ], error_message
 
-  # the environment variable CONTENT_LENGTH may be empty or missing
-  try:
-    request_body_size = int(environ.get("CONTENT_LENGTH", 0))
-  except ValueError:
-    request_body_size = 0
+    # Since administrators of an app can set the X-AppEngine-TaskName header, we
+    # also ensure that this task comes from the TaskQueue IP address.
+    in_prod = (
+        not environ.get("SERVER_SOFTWARE").startswith("Devel"))
+    if in_prod and environ.get("REMOTE_ADDR") != "0.1.0.2":
+      error_message = ("Detected an attempted XSRF attack. "
+                       "This request did not originate from Task Queue.")
+      logging.error(error_message)
+      return http.HTTPStatus.FORBIDDEN, [_TASKQUEUE_RESPONSE_HEADERS
+                                        ], error_message
 
-  request_body = environ["wsgi.input"].read(request_body_size)
-  run(request_body)
-  return "200 OK", [_TASKQUEUE_RESPONSE_HEADERS], "Success"
+    # Log some information about the task we're executing
+    headers = [
+        "%s:%s" % (k[5:], v)
+        for k, v in environ.items()
+        if k.upper().startswith("HTTP_X_APPENGINE_")
+    ]
+    logging.log(_DEFAULT_LOG_LEVEL, ", ".join(headers))
 
+    # the environment variable CONTENT_LENGTH may be empty or missing
+    try:
+      request_body_size = int(environ.get("CONTENT_LENGTH", 0))
+    except ValueError:
+      request_body_size = 0
 
-def execute_deferred_task(environ):
-  """Default behavior for POST requests to the deferred endpoint.
+    request_body = environ["wsgi.input"].read(request_body_size)
+    run(request_body)
+    return http.HTTPStatus.OK, [_TASKQUEUE_RESPONSE_HEADERS], "Success"
 
-  This function is expected to be automatically called by the bundled WSGI
-  middleware, when the TaskQueue service calls the default Deferred URL
-  '/_ah/queue/deferred' to process deferred tasks. To use a custom URL for
-  processing deferred tasks, this function can be called from the new endpoint
-  handler, and passed the WSGI 'environ' dictionary (see PEP 333).
+  def post(self, environ):
+    """Default behavior for POST requests to the deferred endpoint.
 
-  Args:
-    environ: a dict describing the HTTP request (WSGI convention - see PEP 333)
-  Returns:
-    status: a string containing an HTTP status code and a reason phrase-"200 OK"
-    headers: a dict containing response headers
-    response: a string containing body of the response
-  """
-  try:
-    status, headers, response = _deferred_task_run(environ)
-  except SingularTaskFailure:
-    # Catch a SingularTaskFailure. Intended for users to be able to force a
-    # task retry without causing an error.
-    status, headers, response = ("408 SingularTaskFailure",
-                                 [_TASKQUEUE_RESPONSE_HEADERS
-                                 ], "SingularTaskFailure")
-    logging.debug("Failure executing task, task retry forced")
-  except PermanentTaskFailure:
-    # Catch this so we return a 200 and don't retry the task.
-    status, headers, response = ("200 PermanentTaskFailure",
-                                 [_TASKQUEUE_RESPONSE_HEADERS
-                                 ], "PermanentTaskFailure")
-    logging.exception("Permanent failure attempting to execute task")
-  return status, headers, response
+    If the Deferred API has been enabled, this function is automatically called
+    after 'deferred.defer()' is used to defer a task. Behind the scenes,
+    the TaskQueue service calls the default Deferred endpoint
+    '/_ah/queue/deferred', which is routed to this function.
 
-def execute_deferred_task_yield(environ, start_response):
-    status, headers, response = execute_deferred_task(environ)
+    If deferred.defer() is passed a custom '_url' parameter, POST requests to
+    the custom endpoint needs to be handled by the app. To replicate the
+    default behavior of executing a deferred task, this function can be called
+    by the custom endpoint handler, and passed the WSGI 'environ' dictionary
+    of the POST request.
+
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333)
+    Returns:
+      response: a string containing body of the response
+      status: HTTP status code of enum type http.HTTPStatus
+      headers: a dict containing response headers
+    """
+    try:
+      status, headers, response = self.run_from_request(environ)
+    except SingularTaskFailure:
+      # Catch a SingularTaskFailure. Intended for users to be able to force a
+      # task retry without causing an error.
+      status, headers, response = (http.HTTPStatus.REQUEST_TIMEOUT,
+                                   [_TASKQUEUE_RESPONSE_HEADERS
+                                   ], "SingularTaskFailure")
+      logging.debug("Failure executing task, task retry forced")
+    except PermanentTaskFailure:
+      # Catch this so we return a 200 and don't retry the task.
+      status, headers, response = (http.HTTPStatus.OK,
+                                   [_TASKQUEUE_RESPONSE_HEADERS
+                                   ], "PermanentTaskFailure")
+      logging.exception("Permanent failure attempting to execute task")
+    return response, status, headers
+
+  def dispatch(self, environ):
+    """Routes POST requests to the post() method of this instance."""
+    if environ["REQUEST_METHOD"] != "POST":
+      return (http.HTTPStatus.METHOD_NOT_ALLOWED, [("Allow", "POST")], "")
+    return self.post(environ)
+
+  def __call__(self, environ, start_response):
+    """WSGI app callable to handle POST requests to the deferred endpoint.
+
+    This function allows the 'Handler' class to behave like a WSGI app for
+    handling Deferred task execution.
+
+    If the parent WSGI app is required to handle multiple kinds of requests,
+    a dispatcher (compliant with the app's Web Framework) can be used to route
+    an endpoint/URL to be handled by this callable.
+
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333)
+      start_response: callable (See PEP 3333)
+    Returns:
+      list of bytes response
+    """
+    status, headers, response = self.dispatch(environ)
     start_response(status, headers)
-    yield response
+    return [response.encode("utf-8")]
+
+# A WSGI app to handle Deferred requests
+application = Handler()
