@@ -355,6 +355,20 @@ class Handler():
       logging.exception("Permanent failure attempting to execute task")
     return response, status, headers
 
+  def test_ok(self, environ):
+    status, headers, response = http.HTTPStatus.OK, [_TASKQUEUE_RESPONSE_HEADERS], "Success"
+    return response, status, headers
+
+  def test_ptf(self, environ):
+    status, headers, response = (http.HTTPStatus.OK,
+                                   [_TASKQUEUE_RESPONSE_HEADERS
+                                   ], "PermanentTaskFailure")
+    return response, status, headers
+
+  def test_method_not_allowed(self, environ):
+    status, headers, response = (http.HTTPStatus.METHOD_NOT_ALLOWED, [("Allow", "POST")], "")
+    return response, status, headers
+
   def dispatch(self, environ):
     """Routes POST requests to the post() method of this instance."""
     if environ["REQUEST_METHOD"] != "POST":
