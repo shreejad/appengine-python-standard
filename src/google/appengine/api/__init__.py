@@ -43,7 +43,7 @@ from google.appengine.api import full_app_id
 
 
 
-def wrap_wsgi_app(app, use_legacy_context_mode=True):
+def wrap_wsgi_app(app, use_legacy_context_mode=True, use_deferred=False):
   """Wrap a WSGI app with middlewares required to access App Engine APIs."""
 
 
@@ -59,6 +59,9 @@ def wrap_wsgi_app(app, use_legacy_context_mode=True):
 
   def if_legacy(array):
     return array if use_legacy_context_mode else []
+
+  def if_deferred_enabled(array):
+    return array if use_deferred else []
 
   return middlewares.Wrap(
       app,
@@ -80,4 +83,6 @@ def wrap_wsgi_app(app, use_legacy_context_mode=True):
           middlewares.AddDeferredMiddleware,
           middlewares.ErrorLoggingMiddleware,
           middlewares.BackgroundAndShutdownMiddleware,
-      ])
+      ] + if_deferred_enabled([
+          middlewares.AddDeferredMiddleware,
+      ]))
