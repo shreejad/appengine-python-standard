@@ -274,9 +274,9 @@ class Handler():
     Args:
       environ: a WSGI dict describing the HTTP request (See PEP 333).
     Returns:
+      response: a string containing body of the response
       status: HTTP status code of enum type http.HTTPStatus
       headers: a dict containing response headers
-      response: a string containing body of the response
     Raises:
       PermanentTaskFailure if an error occurred during unpickling the task.
     """
@@ -285,8 +285,9 @@ class Handler():
       error_message = ("Detected an attempted XSRF attack. "
                        "The header 'X-AppEngine-Taskname' was not set.")
       logging.error(error_message)
-      return http.HTTPStatus.FORBIDDEN, [_TASKQUEUE_RESPONSE_HEADERS
-                                        ], error_message
+      return error_message, http.HTTPStatus.FORBIDDEN, [
+          _TASKQUEUE_RESPONSE_HEADERS
+      ]
 
     # Since administrators of an app can set the X-AppEngine-TaskName header, we
     # also ensure that this task comes from the TaskQueue IP address.
@@ -296,8 +297,9 @@ class Handler():
       error_message = ("Detected an attempted XSRF attack. "
                        "This request did not originate from Task Queue.")
       logging.error(error_message)
-      return http.HTTPStatus.FORBIDDEN, [_TASKQUEUE_RESPONSE_HEADERS
-                                        ], error_message
+      return error_message, http.HTTPStatus.FORBIDDEN, [
+          _TASKQUEUE_RESPONSE_HEADERS
+      ]
 
     # Log some information about the task we're executing
     headers = [
@@ -315,7 +317,7 @@ class Handler():
 
     request_body = environ["wsgi.input"].read(request_body_size)
     run(request_body)
-    return http.HTTPStatus.OK, [_TASKQUEUE_RESPONSE_HEADERS], "Success"
+    return "Success", http.HTTPStatus.OK, [_TASKQUEUE_RESPONSE_HEADERS]
 
   def post(self, environ):
     """Default behavior for POST requests to the deferred endpoint.
@@ -339,40 +341,25 @@ class Handler():
       headers: a dict containing response headers
     """
     try:
-      status, headers, response = self.run_from_request(environ)
+      response, status, headers = self.run_from_request(environ)
     except SingularTaskFailure:
       # Catch a SingularTaskFailure. Intended for users to be able to force a
       # task retry without causing an error.
-      status, headers, response = (http.HTTPStatus.REQUEST_TIMEOUT,
-                                   [_TASKQUEUE_RESPONSE_HEADERS
-                                   ], "SingularTaskFailure")
+      response, status, headers = ("SingularTaskFailure",
+                                   http.HTTPStatus.REQUEST_TIMEOUT,
+                                   [_TASKQUEUE_RESPONSE_HEADERS])
       logging.debug("Failure executing task, task retry forced")
     except PermanentTaskFailure:
       # Catch this so we return a 200 and don't retry the task.
-      status, headers, response = (http.HTTPStatus.OK,
-                                   [_TASKQUEUE_RESPONSE_HEADERS
-                                   ], "PermanentTaskFailure")
+      response, status, headers = ("PermanentTaskFailure", http.HTTPStatus.OK,
+                                   [_TASKQUEUE_RESPONSE_HEADERS])
       logging.exception("Permanent failure attempting to execute task")
-    return response, status, headers
-
-  def test_ok(self):
-    status, headers, response = http.HTTPStatus.OK, [_TASKQUEUE_RESPONSE_HEADERS], "Success"
-    return response, status, headers
-
-  def test_ptf(self):
-    status, headers, response = (http.HTTPStatus.OK,
-                                   [_TASKQUEUE_RESPONSE_HEADERS
-                                   ], "PermanentTaskFailure")
-    return response, status, headers
-
-  def test_method_not_allowed(self):
-    status, headers, response = (http.HTTPStatus.METHOD_NOT_ALLOWED, [("Allow", "POST")], "")
     return response, status, headers
 
   def dispatch(self, environ):
     """Routes POST requests to the post() method of this instance."""
     if environ["REQUEST_METHOD"] != "POST":
-      return (http.HTTPStatus.METHOD_NOT_ALLOWED, [("Allow", "POST")], "")
+      return ("", http.HTTPStatus.METHOD_NOT_ALLOWED, [("Allow", "POST")])
     return self.post(environ)
 
   def __call__(self, environ, start_response):
@@ -391,8 +378,8 @@ class Handler():
     Returns:
       list of bytes response
     """
-    status, headers, response = self.dispatch(environ)
-    start_response(status, headers)
+    response, status, headers = self.dispatch(environ)
+    start_response(f'{status.value} {status.phrase}', headers)
     return [response.encode("utf-8")]
 
 # A WSGI app to handle Deferred requests
