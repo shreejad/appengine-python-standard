@@ -355,17 +355,17 @@ class Handler():
       logging.exception("Permanent failure attempting to execute task")
     return response, status, headers
 
-  def test_ok(self, environ):
+  def test_ok(self):
     status, headers, response = http.HTTPStatus.OK, [_TASKQUEUE_RESPONSE_HEADERS], "Success"
     return response, status, headers
 
-  def test_ptf(self, environ):
+  def test_ptf(self):
     status, headers, response = (http.HTTPStatus.OK,
                                    [_TASKQUEUE_RESPONSE_HEADERS
                                    ], "PermanentTaskFailure")
     return response, status, headers
 
-  def test_method_not_allowed(self, environ):
+  def test_method_not_allowed(self):
     status, headers, response = (http.HTTPStatus.METHOD_NOT_ALLOWED, [("Allow", "POST")], "")
     return response, status, headers
 
