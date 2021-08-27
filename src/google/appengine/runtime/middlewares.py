@@ -402,22 +402,9 @@ def AddDeferredMiddleware(app, wsgi_env, start_response):
     wsgi_env: see PEP 3333
     start_response: see PEP 3333
   Returns:
-    The wrapped WSGI app response
+    The wrapped WSGI app response in UTF-8 format
   """
-  print(wsgi_env)
   path = wsgi_env['PATH_INFO']
-  request_method = wsgi_env['REQUEST_METHOD']
-  if (path == '/_ah/queue/deferred' and request_method == 'POST'):
-    status, headers, response = deferred.execute_deferred_task(wsgi_env)
-    start_response(status, headers)
-    return [bytes(response, 'utf-8')]
-  elif (path == '/_ah/queue/yielded' and request_method == 'POST'):
-    return [
-      bytes(deferred.execute_deferred_task_yield(wsgi_env, start_response),
-      'utf-8')]
+  if path == '/_ah/queue/deferred':
+    return deferred.application(wsgi_env, start_response)
   return app(wsgi_env, start_response)
-
-
-
-
-  
