@@ -1,20 +1,4 @@
-#!/usr/bin/env python
-#
-# Copyright 2007 Google LLC
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#     http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-
+# Copyright 2008 Google Inc. All Rights Reserved.
 
 """A Python blobstore API used by app developers.
 
@@ -24,27 +8,22 @@ very large blob. The module imports a `db.Key`-like class that represents a blob
 key.
 """
 
-
-
-
-
-
-
-
-
-
+__author__ = 'rafek@google.com (Rafe Kaplan)'
 
 import base64
+import cgi
+import collections
 import email
 import email.message
-
-import six
+import re
 
 from google.appengine.api import datastore
 from google.appengine.api import datastore_errors
 from google.appengine.api import datastore_types
 from google.appengine.api.blobstore import blobstore
 from google.appengine.ext import db
+import six
+from six.moves import urllib
 
 __all__ = ['BLOB_INFO_KIND',
            'BLOB_KEY_HEADER',
@@ -79,7 +58,11 @@ __all__ = ['BLOB_INFO_KIND',
            'GS_PREFIX',
            'get',
            'parse_blob_info',
-           'parse_file_info']
+           'parse_file_info',
+           'RangeFormatError',
+           'UnsupportedRangeFormatError',
+           'BlobstoreDownloadHandler',
+           'BlobstoreUploadHandler',]
 
 Error = blobstore.Error
 InternalError = blobstore.InternalError
@@ -108,6 +91,19 @@ UPLOAD_INFO_CREATION_HEADER = blobstore.UPLOAD_INFO_CREATION_HEADER
 CLOUD_STORAGE_OBJECT_HEADER = blobstore.CLOUD_STORAGE_OBJECT_HEADER
 GS_PREFIX = blobstore.GS_PREFIX
 
+_CONTENT_DISPOSITION_FORMAT = b'attachment; filename="%s"'
+_CONTENT_DISPOSITION_FORMAT_UTF8 = (b'attachment; filename="%s"; '
+                                    b'filename*=utf-8\'\'%s')
+
+_SEND_BLOB_PARAMETERS = frozenset(['use_range'])
+
+_RANGE_NUMERIC_FORMAT = r'([0-9]*)-([0-9]*)'
+_RANGE_FORMAT = r'([a-zA-Z]+)=%s' % _RANGE_NUMERIC_FORMAT
+_RANGE_FORMAT_REGEX = re.compile('^%s$' % _RANGE_FORMAT)
+_UNSUPPORTED_RANGE_FORMAT_REGEX = re.compile(
+    '^%s(?:,%s)+$' % (_RANGE_FORMAT, _RANGE_NUMERIC_FORMAT))
+_BYTES_UNIT = 'bytes'
+
 
 class BlobInfoParseError(Error):
   """The CGI parameter does not contain a valid `BlobInfo` record."""
@@ -117,8 +113,16 @@ class FileInfoParseError(Error):
   """The CGI parameter does not contain a valid `FileInfo` record."""
 
 
+class RangeFormatError(Error):
+  """Raised when Range header incorrectly formatted."""
 
 
+class UnsupportedRangeFormatError(RangeFormatError):
+  """Raised when Range format is correct, but not supported."""
+
+
+# TODO(rafek): Eliminate this class by refactoring query.
+# See http://b/issue?id=1518391
 class _GqlQuery(db.GqlQuery):
   """GqlQuery class that explicitly sets `model-class`.
 
@@ -131,7 +135,7 @@ class _GqlQuery(db.GqlQuery):
       mechanism but will be removed in the future. DO NOT USE.
   """
 
-
+  # This `__init__` function should be kept in sync with `db.GqlQuery.__init__`.
   def __init__(self, query_string, model_class, *args, **kwds):
     """Constructor.
 
@@ -142,18 +146,18 @@ class _GqlQuery(db.GqlQuery):
           the query.
       **kwds: Dictionary-based arguments for named references.
     """
-
-
+    # Delayed import so apps don't have to pay the cost of importing
+    # GQL unless they use it; the Python style guide notwithstanding.
     from google.appengine.ext import gql
-    app = kwds.pop('_app', None)
+    app = kwds.pop('_app', None)  # Application ID (intentionally undocumented)
     self._proto_query = gql.GQL(query_string, _app=app, namespace='')
-
+    # Note, the `db.GqlQuery` constructor is skipped here.
     super(db.GqlQuery, self).__init__(model_class)
     self.bind(*args, **kwds)
 
 
-
-
+# The `BlobInfo` objects are stored in datastore using default namespace
+# as blobstore doesn't have the notion of namespace.
 class BlobInfo(object):
   """Information about blobs in Blobstore.
 
@@ -182,7 +186,7 @@ class BlobInfo(object):
 
   _unindexed_properties = frozenset([])
 
-
+  # Make sure to update this set if you add a property below
   _all_properties = frozenset(['content_type', 'creation', 'filename',
                                'size', 'md5_hash', 'gs_object_name'])
 
@@ -255,8 +259,8 @@ class BlobInfo(object):
     else:
       raise TypeError('Must provide Entity or BlobKey')
 
-
-
+  # TODO(rafek): Eliminate this method by refactoring query.
+  # See http://b/issue?id=1518391
   @classmethod
   def from_entity(cls, entity):
     """Converts an entity to `BlobInfo`.
@@ -273,8 +277,8 @@ class BlobInfo(object):
     """
     return BlobInfo(entity)
 
-
-
+  # TODO(rafek): Eliminate this method by refactoring query.
+  # See http://b/issue?id=1518391
   @classmethod
   def properties(cls):
     """Defines the set of properties that belong to `BlobInfo`.
@@ -398,7 +402,7 @@ class BlobInfo(object):
                      *args,
                      **kwds)
 
-
+  # TODO(rafek): Make this method private.
   @classmethod
   def kind(self):
     """Gets the entity kind for the `BlobInfo`.
@@ -428,7 +432,7 @@ class BlobInfo(object):
     """
     if isinstance(keys, (list, tuple)):
       multiple = True
-
+      # Shallow copy
       keys = list(keys)
     else:
       multiple = False
@@ -517,8 +521,8 @@ def _parse_upload_info(field_storage, error_class):
   blob_key = field_storage.type_options.get('blob-key', None)
 
   upload_content = _get_upload_content(field_storage)
-
-
+  # Rewind the file, to allow subsequent calls of both parse_blob_info and
+  # parse_file_info.
   field_storage.file.seek(0)
   content_type = get_value(upload_content, 'content-type')
   size = get_value(upload_content, 'content-length')
@@ -863,9 +867,9 @@ class BlobReader(object):
       self.__blob_info = None
     self.__buffer_size = buffer_size
     self.__buffer = b''
-    self.__position = position
-    self.__buffer_position = 0
-    self.__eof = False
+    self.__position = position  # The position the caller sees
+    self.__buffer_position = 0  # The position in the internal buffer
+    self.__eof = False  # Does buf contain the last byte in the file?
 
   def __iter__(self):
     """Retrieves a file iterator for this `BlobReader`.
@@ -900,7 +904,7 @@ class BlobReader(object):
   def flush(self):
     raise IOError("BlobReaders are read-only")
 
-  def next(self):
+  def __next__(self):
     r"""Returns the next line from the file.
 
     Returns:
@@ -914,9 +918,6 @@ class BlobReader(object):
     if not line:
       raise StopIteration
     return line
-
-  def __next__(self):
-    return self.next()
 
   def __read_from_buffer(self, size):
     """Reads at most `size` bytes from the buffer.
@@ -933,7 +934,7 @@ class BlobReader(object):
             calling method might choose to fill the buffer again and keep
             reading.
     """
-
+    # Read as much data as is wanted, or is available in the buffer
     if not self.__blob_key:
       raise ValueError("File is closed")
 
@@ -943,13 +944,13 @@ class BlobReader(object):
       end_pos = self.__buffer_position + size
     data = self.__buffer[self.__buffer_position:end_pos]
 
-
+    # Update counters
     data_length = len(data)
     size -= data_length
     self.__position += data_length
     self.__buffer_position += data_length
 
-
+    # Clear buf for GC if it's all been read
     if self.__buffer_position == len(self.__buffer):
       self.__buffer = b''
       self.__buffer_position = 0
@@ -964,7 +965,7 @@ class BlobReader(object):
           `[self.__buffer_size, MAX_BLOB_FETCH_SIZE]`.
     """
     read_size = min(max(size, self.__buffer_size), MAX_BLOB_FETCH_SIZE)
-
+    # Read data. End position is -1 because it is exclusive, not inclusive.
     self.__buffer = fetch_data(self.__blob_key, self.__position,
                                self.__position + read_size - 1)
     self.__buffer_position = 0
@@ -1020,13 +1021,13 @@ class BlobReader(object):
         end_pos = self.__buffer_position + size
       newline_pos = self.__buffer.find(b'\n', self.__buffer_position, end_pos)
       if newline_pos != -1:
-
+        # Found a newline - read up to it
         data_list.append(
             self.__read_from_buffer(newline_pos
                                     - self.__buffer_position + 1)[0])
         break
       else:
-
+        # No newline - read the buffer and refill it if necessary
         data, size = self.__read_from_buffer(size)
         data_list.append(data)
         if size == 0 or self.__eof:
@@ -1055,7 +1056,7 @@ class BlobReader(object):
       if sizehint:
         sizehint -= len(line)
       if not line:
-
+        # EOF
         break
       lines.append(line)
     return lines
@@ -1199,3 +1200,340 @@ class BlobMigrationRecord(db.Model):
     record = cls.get_by_blob_key(old_blob_key)
     if record:
       return record.new_blob_ref.key()
+
+
+def _serialize_range(start, end):
+  """Return a string suitable for use as a value in a Range header.
+
+  Args:
+    start: The start of the bytes range e.g. 50.
+    end: The end of the bytes range e.g. 100. This value is inclusive and may
+      be None if the end of the range is not specified.
+
+  Returns:
+    Returns a string (e.g. "bytes=50-100") that represents a serialized Range
+    header value.
+  """
+  if start < 0:
+    range_str = '%d' % start
+  elif end is None:
+    range_str = '%d-' % start
+  else:
+    range_str = '%d-%d' % (start, end)
+  return 'bytes=%s' % range_str
+
+
+def _parse_range_value(range_value):
+  """Parses a single range value from a Range header.
+
+  Parses strings of the form "0-0", "0-", "0" and "-1" into (start, end) tuples,
+  respectively, (0, 0), (0, None), (0, None), (-1, None).
+
+  Args:
+    range_value: A str containing a single range of a Range header.
+
+  Returns:
+    A tuple containing (start, end) where end is None if the range only has a
+    start value.
+
+  Raises:
+    ValueError: If range_value is not a valid range.
+  """
+  end = None
+  if range_value.startswith('-'):
+    start = int(range_value)
+    if start == 0:
+      raise ValueError('-0 is not a valid range.')
+  else:
+    split_range = range_value.split('-', 1)
+    start = int(split_range[0])
+    if len(split_range) > 1 and split_range[1].strip():
+      end = int(split_range[1])
+      if start > end:
+        raise ValueError('start must be <= end.')
+  return (start, end)
+
+
+def _parse_bytes(range_header):
+  """Parses a full HTTP Range header.
+
+  Args:
+    range_header: The str value of the Range header.
+
+  Returns:
+    A tuple (units, parsed_ranges) where:
+      units: A str containing the units of the Range header, e.g. "bytes".
+      parsed_ranges: A list of (start, end) tuples in the form that
+        _parsed_range_value returns.
+  """
+  try:
+    parsed_ranges = []
+    units, ranges = range_header.split('=', 1)
+    for range_value in ranges.split(','):
+      range_value = range_value.strip()
+      if range_value:
+        parsed_ranges.append(_parse_range_value(range_value))
+    if not parsed_ranges:
+      return None
+    return units, parsed_ranges
+  except ValueError:
+    return None
+
+
+def _check_ranges(start, end, use_range_set, use_range, range_header):
+  """Set the range header.
+
+  Args:
+    start: As passed in from send_blob.
+    end: As passed in from send_blob.
+    use_range_set: Use range was explcilty set during call to send_blob.
+    use_range: As passed in from send blob.
+    range_header: Range header as received in HTTP request.
+
+  Returns:
+    Range header appropriate for placing in BLOB_RANGE_HEADER.
+
+  Raises:
+    ValueError if parameters are incorrect.  This happens:
+      - start > end.
+      - start < 0 and end is also provided.
+      - end < 0
+      - If index provided AND using the HTTP header, they don't match.
+        This is a safeguard.
+  """
+  if end is not None and start is None:
+    raise ValueError('May not specify end value without start.')
+
+  # Format index parameters.
+  use_indexes = start is not None
+  if use_indexes:
+    if end is not None:
+      if start > end:
+        raise ValueError('start must be < end.')
+      elif start < 0:
+        raise ValueError('end cannot be set if start < 0.')
+    range_indexes = _serialize_range(start, end)
+
+  # If both headers and index parameters are in use they must be the same.
+  if use_range_set and use_range and use_indexes:
+    if range_header != range_indexes:
+      raise ValueError('May not provide non-equivalent range indexes and '
+                       'range headers: (header) %s != (indexes) %s'
+                       % (range_header, range_indexes))
+
+  # Return appropriate result.
+  if use_range and range_header is not None:
+    return range_header
+  elif use_indexes:
+    return range_indexes
+  else:
+    return None
+
+
+class BlobstoreDownloadHandler():
+  """Base class for creating handlers that may send blobs to users."""
+
+  __use_range_unset = object()
+
+  def send_blob(self,
+                environ,
+                blob_key_or_info,
+                content_type=None,
+                save_as=None,
+                start=None,
+                end=None,
+                **kwargs):
+    """Send a blob-response based on a blob_key.
+
+    Returns the correct response headers for serving a blob.  If BlobInfo
+    is provided and no content_type specified, will set request content type
+    to BlobInfo's content type.
+
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333).
+      blob_key_or_info: BlobKey or BlobInfo record to serve.
+      content_type: Content-type to override when known.
+      save_as: If True, and BlobInfo record is provided, use BlobInfos
+        filename to save-as.  If string is provided, use string as filename.
+        If None or False, do not send as attachment.
+      start: Start index of content-range to send.
+      end: End index of content-range to send.  End index is inclusive.
+      **kwargs:
+        The `use_range` keyworded argument provides content range from the
+        requests' Range header.
+
+    Raises:
+      ValueError on invalid save_as parameter.
+
+    Returns:
+      headers: a `dict` containing response headers
+
+    """
+    if set(kwargs) - _SEND_BLOB_PARAMETERS:
+      invalid_keywords = []
+      for keyword in kwargs:
+        if keyword not in _SEND_BLOB_PARAMETERS:
+          invalid_keywords.append(keyword)
+      if len(invalid_keywords) == 1:
+        raise TypeError('send_blob got unexpected keyword argument %s.'
+                        % invalid_keywords[0])
+      else:
+        raise TypeError('send_blob got unexpected keyword arguments: %s'
+                        % sorted(invalid_keywords))
+
+    # Process the range header.
+    use_range = kwargs.get('use_range', self.__use_range_unset)
+    use_range_set = use_range is not self.__use_range_unset
+
+    headers = {}  # Initialize Response headers
+    range_header = _check_ranges(start, end, use_range_set, use_range,
+                                 environ.get('HTTP_RANGE'))
+
+    if range_header is not None:
+      headers[BLOB_RANGE_HEADER] = range_header
+
+    if isinstance(blob_key_or_info, BlobInfo):
+      blob_key = blob_key_or_info.key()
+      blob_info = blob_key_or_info
+    elif isinstance(blob_key_or_info, str) and blob_key_or_info.startswith(
+        '/gs/'):
+      blob_key = create_gs_key(blob_key_or_info)
+      blob_info = None
+    else:
+      blob_key = blob_key_or_info
+      blob_info = None
+
+    headers[BLOB_KEY_HEADER] = str(blob_key)
+
+    if content_type:
+      if isinstance(content_type, six.text_type):
+        content_type = content_type.encode('utf-8')
+      headers['Content-Type'] = content_type
+    else:
+      # Content-Type is set to text/html by webapp.RequestHandler.  Clearing
+      # this will cause the appserver to use the guessed content type.
+      headers.pop('Content-Type', None)
+
+    def send_attachment(filename):
+      if isinstance(filename, six.text_type):
+        filename_utf8 = filename.encode('utf-8')
+        headers['Content-Disposition'] = (
+            _CONTENT_DISPOSITION_FORMAT_UTF8 %
+            (filename_utf8, urllib.parse.quote(filename_utf8).encode('utf-8')))
+      else:
+        headers['Content-Disposition'] = (
+            _CONTENT_DISPOSITION_FORMAT % filename)
+
+    if save_as:
+      if isinstance(save_as, (bytes, six.text_type)):
+        send_attachment(save_as)
+      elif blob_info and save_as is True:  # pylint: disable=g-bool-id-comparison
+        send_attachment(blob_info.filename)
+      else:
+        if not blob_info:
+          raise ValueError('Expected BlobInfo value for blob_key_or_info.')
+        else:
+          raise ValueError('Unexpected value for save_as.')
+
+    return headers
+
+  def get_range(self, environ):
+    """Get range from header if it exists.
+
+    A range header of "bytes: 0-100" would return (0, 100).
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333).
+    Returns:
+      Tuple (start, end):
+        start: Start index.  None if there is None.
+        end: End index (inclusive).  None if there is None.
+      None if there is no request header.
+
+    Raises:
+      UnsupportedRangeFormatError: If the range format in the header is
+        valid, but not supported.
+      RangeFormatError: If the range format in the header is not valid.
+    """
+    range_header = environ.get('HTTP_RANGE')
+    if range_header is None:
+      return None
+
+    parsed_range = _parse_bytes(range_header)
+    if parsed_range is None:
+      raise RangeFormatError('Invalid range header: %s' % range_header)
+
+    units, ranges = parsed_range
+    if len(ranges) != 1:
+      raise UnsupportedRangeFormatError(
+          'Unable to support multiple range values in Range header.')
+
+    if units != _BYTES_UNIT:
+      raise UnsupportedRangeFormatError(
+          'Invalid unit in range header type: %s' % range_header)
+
+    return ranges[0]
+
+
+class BlobstoreUploadHandler():
+  """Base class for creation blob upload handlers."""
+
+  def __init__(self):
+    self.__uploads = None
+    self.__file_infos = None
+
+  def get_uploads(self, environ, field_name=None):
+    """Get uploads sent to this handler.
+
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333).
+      field_name: Only select uploads that were sent as a specific field.
+
+    Returns:
+      A list of BlobInfo records corresponding to each upload.
+      Empty list if there are no blob-info records for field_name.
+    """
+    if self.__uploads is None:
+      self.__uploads = collections.defaultdict(list)
+      form = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ)
+      for value in form.list:
+        if isinstance(value, cgi.FieldStorage):
+          key = value.name
+          if 'blob-key' in value.type_options:
+            self.__uploads[key].append(parse_blob_info(value))
+
+    if field_name:
+      return list(self.__uploads.get(field_name, []))
+    else:
+      results = []
+      for uploads in six.itervalues(self.__uploads):
+        results.extend(uploads)
+      return results
+
+  def get_file_infos(self, environ, field_name=None):
+    """Get the file infos associated to the uploads sent to this handler.
+
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333).
+      field_name: Only select uploads that were sent as a specific field.
+        Specify None to select all the uploads.
+
+    Returns:
+      A list of FileInfo records corresponding to each upload.
+      Empty list if there are no FileInfo records for field_name.
+    """
+    if self.__file_infos is None:
+      self.__file_infos = collections.defaultdict(list)
+      form = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ)
+      for value in form.list:
+        if isinstance(value, cgi.FieldStorage):
+          key = value.name
+          if 'blob-key' in value.type_options:
+            self.__file_infos[key].append(parse_file_info(value))
+
+    if field_name:
+      return list(self.__file_infos.get(field_name, []))
+    else:
+      results = []
+      for uploads in six.itervalues(self.__file_infos):
+        results.extend(uploads)
+      return results
