@@ -1410,9 +1410,9 @@ class BlobstoreDownloadHandler():
         content_type = content_type.encode('utf-8')
       headers['Content-Type'] = content_type
     else:
-      # Content-Type is set to text/html by webapp.RequestHandler.  Clearing
+      # Content-Type is usually set to text/html by web frameworks.  Clearing
       # this will cause the appserver to use the guessed content type.
-      headers.pop('Content-Type', None)
+      headers['Content-Type'] = None
 
     def send_attachment(filename):
       if isinstance(filename, six.text_type):
