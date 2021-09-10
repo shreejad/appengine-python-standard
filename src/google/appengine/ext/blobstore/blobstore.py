@@ -1473,21 +1473,20 @@ class BlobstoreDownloadHandler():
           'Invalid unit in range header type: %s' % range_header)
 
     return ranges[0]
-  
+
   def get(self, environ):
     """Override this method to handle GET requests to this WSGI handler.
 
     This method is called internally by __call__ if an instance of this class
     is used as a WSGI callable app, and the HTTP request being handled is a GET
-    request. This method is not needed if only the helper methods of
-    the class ('send_blob' or 'get_range') are being used.
+    request.
 
     Args:
       environ: a WSGI dict describing the HTTP request (See PEP 333).
     Returns:
       response: a string containing body of the response
       status: HTTP status code of enum type http.HTTPStatus
-      headers: a dict containing response headers
+      headers: a list of 2-tuples containing Response headers
     """
     raise NotImplementedError()
 
@@ -1498,7 +1497,6 @@ class BlobstoreDownloadHandler():
     response, status, headers = self.get(environ)
     start_response(f'{status.value} {status.phrase}', headers)
     return [response.encode('utf-8')]
-
 
 
 class BlobstoreUploadHandler():
@@ -1566,13 +1564,25 @@ class BlobstoreUploadHandler():
       return results
 
   def post(self, environ):
-    """TODO: Document what this function should do/return."""
+    """Override this method to handle POST requests to this WSGI handler.
+
+    This method is called internally by __call__ if an instance of this class
+    is used as a WSGI callable app, and the HTTP request being handled is a POST
+    request.
+
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333).
+    Returns:
+      response: a string containing body of the response
+      status: HTTP status code of enum type http.HTTPStatus
+      headers: a list of 2-tuples containing Response headers
+    """
     raise NotImplementedError()
 
   def __call__(self, environ, start_response):
-    if environ["REQUEST_METHOD"] != "POST":
-      return ("", http.HTTPStatus.METHOD_NOT_ALLOWED, [("Allow", "POST")])
+    if environ['REQUEST_METHOD'] != 'POST':
+      return ('', http.HTTPStatus.METHOD_NOT_ALLOWED, [('Allow', 'POST')])
 
     response, status, headers = self.post(environ)
-    start_response(f"{status.value} {status.phrase}", headers)
-    return [response.encode("utf-8")]
+    start_response(f'{status.value} {status.phrase}', headers)
+    return [response.encode('utf-8')]
