@@ -1413,7 +1413,7 @@ class BlobstoreDownloadHandler():
     else:
       # Content-Type is usually set to text/html by web frameworks.  Clearing
       # this will cause the appserver to use the guessed content type.
-      headers['Content-Type'] = None
+      headers['Content-Type'] = ""
 
     def send_attachment(filename):
       if isinstance(filename, six.text_type):
