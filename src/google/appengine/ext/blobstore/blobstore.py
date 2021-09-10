@@ -15,6 +15,7 @@ import cgi
 import collections
 import email
 import email.message
+import http
 import re
 
 from google.appengine.api import datastore
@@ -1472,6 +1473,32 @@ class BlobstoreDownloadHandler():
           'Invalid unit in range header type: %s' % range_header)
 
     return ranges[0]
+  
+  def get(self, environ):
+    """Override this method to handle GET requests to this WSGI handler.
+
+    This method is called internally by __call__ if an instance of this class
+    is used as a WSGI callable app, and the HTTP request being handled is a GET
+    request. This method is not needed if only the helper methods of
+    the class ('send_blob' or 'get_range') are being used.
+
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333).
+    Returns:
+      response: a string containing body of the response
+      status: HTTP status code of enum type http.HTTPStatus
+      headers: a dict containing response headers
+    """
+    raise NotImplementedError()
+
+  def __call__(self, environ, start_response):
+    if environ['REQUEST_METHOD'] != 'GET':
+      return ('', http.HTTPStatus.METHOD_NOT_ALLOWED, [('Allow', 'GET')])
+
+    response, status, headers = self.get(environ)
+    start_response(f'{status.value} {status.phrase}', headers)
+    return [response.encode('utf-8')]
+
 
 
 class BlobstoreUploadHandler():
@@ -1537,3 +1564,15 @@ class BlobstoreUploadHandler():
       for uploads in six.itervalues(self.__file_infos):
         results.extend(uploads)
       return results
+
+  def post(self, environ):
+    """TODO: Document what this function should do/return."""
+    raise NotImplementedError()
+
+  def __call__(self, environ, start_response):
+    if environ["REQUEST_METHOD"] != "POST":
+      return ("", http.HTTPStatus.METHOD_NOT_ALLOWED, [("Allow", "POST")])
+
+    response, status, headers = self.post(environ)
+    start_response(f"{status.value} {status.phrase}", headers)
+    return [response.encode("utf-8")]
