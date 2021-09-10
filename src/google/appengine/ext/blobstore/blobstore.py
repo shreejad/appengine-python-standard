@@ -1519,6 +1519,8 @@ class BlobstoreUploadHandler():
       A list of BlobInfo records corresponding to each upload.
       Empty list if there are no blob-info records for field_name.
     """
+    print("get_uploads environ: ", environ)
+    print("self.__uploads: ", self.__uploads)
     if self.__uploads is None:
       self.__uploads = collections.defaultdict(list)
       form = cgi.FieldStorage(fp=environ['wsgi.input'], environ=environ)
