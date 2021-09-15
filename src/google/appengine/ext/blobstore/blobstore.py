@@ -1410,6 +1410,8 @@ class BlobstoreDownloadHandler():
       if isinstance(content_type, six.text_type):
         content_type = content_type.encode('utf-8')
       headers['Content-Type'] = content_type
+    
+    print(blob_info)
 
     def send_attachment(filename):
       if isinstance(filename, six.text_type):
