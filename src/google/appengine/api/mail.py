@@ -33,7 +33,9 @@ services for their applications. The module also provides a few utility methods.
 
 
 
-
+import binascii
+import cgi
+from collections.abc import MutableMapping
 import codecs
 import email
 from email import parser
@@ -42,6 +44,7 @@ from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 import functools
+import http
 import logging
 import typing
 import six
@@ -2014,6 +2017,7 @@ class BounceNotificationHandler():
   def post(self, environ):
     """Transforms POST body to bounce request."""
 
+    print("bh environ print: ", environ)
     fs = cgi.FieldStorage(
         fp=environ['wsgi.input'],
         environ=environ,
@@ -2021,8 +2025,12 @@ class BounceNotificationHandler():
         encoding='utf8',
     )
 
-    print(fs)
+    print("bh fs print: ", fs)
+
     post_vars = self.MultiDict.from_fieldstorage(fs)
+
+    print("bh post_vars print: ", post_vars)
+
     self.receive(BounceNotification(post_vars))
     return '', http.HTTPStatus.OK, []
 
