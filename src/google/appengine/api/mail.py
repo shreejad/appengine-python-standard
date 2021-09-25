@@ -2027,7 +2027,8 @@ class BounceNotificationHandler():
         encoding='utf8',
     )
 
-    print("bh fs print: ", fs)
+    print("bh fs.__dict__ print: ", fs.__dict__)
+    print("bh fs.list() print: ", fs.list())
 
     post_vars = self.MultiDict.from_fieldstorage(fs)
 
