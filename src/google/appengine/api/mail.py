@@ -1984,6 +1984,7 @@ class BounceNotificationHandler():
       # fs.list can be None when there's nothing to parse
 
       for field in fs.list or ():
+        print("field :", field.__dict__)
         charset = field.type_options.get('charset', 'utf8')
         transfer_encoding = field.headers.get('Content-Transfer-Encoding', None)
         supported_transfer_encoding = {
@@ -1997,6 +1998,7 @@ class BounceNotificationHandler():
         else:
           def decode(b):
             return b.encode('utf8').decode(charset)  # pylint: disable=cell-var-from-loop
+
         if field.filename:
           field.filename = decode(field.filename)
           obj.add(field.name, field)
