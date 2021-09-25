@@ -2029,7 +2029,7 @@ class BounceNotificationHandler():
 
     post_vars = self.MultiDict.from_fieldstorage(fs)
 
-    print("bh post_vars print: ", post_vars)
+    print("bh post_vars print: ", post_vars.__dict__)
 
     self.receive(BounceNotification(post_vars))
     return '', http.HTTPStatus.OK, []
