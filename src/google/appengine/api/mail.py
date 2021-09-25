@@ -2014,7 +2014,7 @@ class BounceNotificationHandler():
             value = value.decode('utf8')
           obj.add(field.name, decode(value))
 
-        return obj
+      return obj
 
   def post(self, environ):
     """Transforms POST body to bounce request."""
