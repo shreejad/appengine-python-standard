@@ -1689,6 +1689,7 @@ class InboundEmailMessage(EmailMessage):
 parser.Parser
 
 
+
 def parse_email(environ):
   """Transforms the HTTP request body to an email message.
 
@@ -1788,7 +1789,8 @@ class InboundMailHandler():
       return ('', http.HTTPStatus.METHOD_NOT_ALLOWED, [('Allow', 'POST')])
 
     self.post(environ)
-    start_response('200 OK', [])
+    response = http.HTTPStatus.OK
+    start_response(f'{response.value} {response.phrase}', [])
     return [''.encode('utf-8')]
 
 
@@ -1847,37 +1849,134 @@ class BounceNotification(object):
     return self.__original_raw_message
 
 
-def parse_bounce_notification(post_vars):
-  """Transforms the HTTP request form data to a bounce notification.
+class _MultiDict(MutableMapping):
+  """A slim version of the WebOb.MultiDict class.
+
+  This only includes functionality needed for accessing POST form vars
+  needed for for parsing a BounceNotification object.
+  Original WebOb class:
+  https://github.com/Pylons/webob/blob/master/src/webob/multidict.py
+  """
+
+  def __init__(self):
+    self._items = []
+
+  def __len__(self):
+    return len(self._items)
+
+  def __getitem__(self, key):
+    for k, v in reversed(self._items):
+      if k == key:
+        return v
+    raise KeyError(key)
+
+  def __setitem__(self, key, value):
+    try:
+      del self[key]
+    except KeyError:
+      pass
+    self._items.append((key, value))
+
+  def __delitem__(self, key):
+    items = self._items
+    found = False
+
+    for i in range(len(items) - 1, -1, -1):
+      if items[i][0] == key:
+        del items[i]
+        found = True
+
+    if not found:
+      raise KeyError(key)
+
+  def add(self, key, value):
+    """Add the key and value, not overwriting any previous value."""
+    self._items.append((key, value))
+
+  def keys(self):
+    for k, _ in self._items:
+      yield k
+
+  __iter__ = keys
+
+  @classmethod
+  def from_fieldstorage(cls, fs):
+    """Create a MultiDict from a cgi.FieldStorage instance.
+
+    This mimics functionality in webob.MultiDict without taking a dependency
+    on the WebOb package -
+    https://github.com/Pylons/webob/blob/259230aa2b8b9cf675c996e157c5cf021c256059/src/webob/multidict.py#L57
+    However
+
+    Args:
+      fs: cgi.FieldStorage object correspoinding to a POST request
+    Returns:
+      MultiDict that contains form variables from the POST request
+    """
+    obj = cls()
+    # fs.list can be None when there's nothing to parse
+
+    for field in fs.list or ():
+      charset = field.type_options.get('charset', 'utf8')
+      transfer_encoding = field.headers.get('Content-Transfer-Encoding', None)
+      supported_transfer_encoding = {
+          'base64': binascii.a2b_base64,
+          'quoted-printable': binascii.a2b_qp,
+      }
+
+      if charset == 'utf8':
+        def decode(b):
+          return b
+      else:
+        def decode(b):
+          return b.encode('utf8').decode(charset)  # pylint: disable=cell-var-from-loop
+
+      if field.filename:
+        field.filename = decode(field.filename)
+        obj.add(field.name, field)
+      else:
+        value = field.value
+
+        if transfer_encoding in supported_transfer_encoding:
+          # binascii accepts bytes
+          value = value.encode('utf8')
+          value = supported_transfer_encoding[transfer_encoding](value)
+
+          # binascii returns bytes
+          value = value.decode('utf8')
+        obj.add(field.name, decode(value))
+
+    return obj
+
+
+def parse_bounce_notification(environ):
+  """Transforms the HTTP request body to a bounce notification object.
+
+  Example (Flask)::
+
+    @app.route('/_ah/bounce/', methods=['POST'])
+    def receive_bounce_notification():
+      bounce_message = mail.parse_bounce_notification(request.environ)
+
+      # Do something with the message
+      logging.info('Bounce original: %s', bounce_message.original)
+      logging.info('Bounce notification: %s', bounce_message.notification)
+      return “Success”
 
   Args:
-   post_vars: a dict-like object containing bounce information.
-          This is typically `flask.request.form` field for Flask users, and the
-          `POST` property in `webob.Request` for WebOb users.
-          The following keys are handled in the dict:
-            original-from
-            original-to
-            original-cc
-            original-bcc
-            original-subject
-            original-text
-            notification-from
-            notification-to
-            notification-cc
-            notification-bcc
-            notification-subject
-            notification-text
-            raw-message
+    environ: a WSGI dict describing the HTTP request (See PEP 333).
   Returns:
-    An BounceNotification object.
+    A BounceNotification object.
   """
-  try:
-    req_size = int(environ.get('CONTENT_LENGTH', 0))
-  except ValueError:
-    req_size = 0
+  fs = cgi.FieldStorage(
+      fp=environ['wsgi.input'],
+      environ=environ,
+      keep_blank_values=True,
+      encoding='utf8',
+  )
 
-  request_bytes = environ['wsgi.input'].read(req_size)
-  return mail.InboundEmailMessage(request_bytes)
+  post_vars = _MultiDict.from_fieldstorage(fs)
+  return BounceNotification(post_vars)
 
 
 class BounceNotificationHandler():
@@ -1916,126 +2015,10 @@ class BounceNotificationHandler():
     app = wrap_wsgi_app(WSGIApplication())
   """
 
-  class MultiDict(MutableMapping):
-    """A slim version of the WebOb.MultiDict class.
-
-    This only includes functionality needed for accessing POST form vars
-    needed for for parsing a BounceNotification object.
-    Original WebOb class:
-    https://github.com/Pylons/webob/blob/master/src/webob/multidict.py
-    """
-
-    def __init__(self):
-      self._items = []
-
-    def __len__(self):
-      return len(self._items)
-
-    def __getitem__(self, key):
-      for k, v in reversed(self._items):
-        if k == key:
-          return v
-      raise KeyError(key)
-
-    def __setitem__(self, key, value):
-      try:
-        del self[key]
-      except KeyError:
-        pass
-      self._items.append((key, value))
-
-    def __delitem__(self, key):
-      items = self._items
-      found = False
-
-      for i in range(len(items) - 1, -1, -1):
-        if items[i][0] == key:
-          del items[i]
-          found = True
-
-      if not found:
-        raise KeyError(key)
-
-    def add(self, key, value):
-      """Add the key and value, not overwriting any previous value."""
-      self._items.append((key, value))
-
-    def keys(self):
-      for k, _ in self._items:
-        yield k
-
-    __iter__ = keys
-
-    @classmethod
-    def from_fieldstorage(cls, fs):
-      """Create a MultiDict from a cgi.FieldStorage instance.
-
-      This mimics functionality in webob.MultiDict without taking a dependency
-      on the WebOb package -
-      https://github.com/Pylons/webob/blob/259230aa2b8b9cf675c996e157c5cf021c256059/src/webob/multidict.py#L57
-      However
-
-      Args:
-        fs: cgi.FieldStorage object correspoinding to a POST request
-      Returns:
-        MultiDict that contains form variables from the POST request
-      """
-      obj = cls()
-      # fs.list can be None when there's nothing to parse
-
-      for field in fs.list or ():
-        print("field :", field.__dict__)
-        charset = field.type_options.get('charset', 'utf8')
-        transfer_encoding = field.headers.get('Content-Transfer-Encoding', None)
-        supported_transfer_encoding = {
-            'base64': binascii.a2b_base64,
-            'quoted-printable': binascii.a2b_qp,
-        }
-
-        if charset == 'utf8':
-          def decode(b):
-            return b
-        else:
-          def decode(b):
-            return b.encode('utf8').decode(charset)  # pylint: disable=cell-var-from-loop
-
-        if field.filename:
-          field.filename = decode(field.filename)
-          obj.add(field.name, field)
-        else:
-          value = field.value
-
-          if transfer_encoding in supported_transfer_encoding:
-            # binascii accepts bytes
-            value = value.encode('utf8')
-            value = supported_transfer_encoding[transfer_encoding](value)
-
-            # binascii returns bytes
-            value = value.decode('utf8')
-          obj.add(field.name, decode(value))
-
-      return obj
-
   def post(self, environ):
     """Transforms POST body to bounce request."""
 
-    print("bh environ print: ", environ)
-    fs = cgi.FieldStorage(
-        fp=environ['wsgi.input'],
-        environ=environ,
-        keep_blank_values=True,
-        encoding='utf8',
-    )
-
-    print("bh fs.__dict__ print: ", fs.__dict__)
-    print("bh fs.list() print: ", fs.list)
-
-    post_vars = self.MultiDict.from_fieldstorage(fs)
-
-    print("bh post_vars print: ", post_vars.__dict__)
-
-    self.receive(BounceNotification(post_vars))
-    return '', http.HTTPStatus.OK, []
+    self.receive(parse_bounce_notification(environ))
 
   def receive(self, bounce_notification):
     pass
@@ -2044,9 +2027,10 @@ class BounceNotificationHandler():
     if environ['REQUEST_METHOD'] != 'POST':
       return ('', http.HTTPStatus.METHOD_NOT_ALLOWED, [('Allow', 'POST')])
 
-    response, status, headers = self.post(environ)
-    start_response(f'{status.value} {status.phrase}', headers)
-    return [response.encode('utf-8')]
+    self.post(environ)
+    response = http.HTTPStatus.OK
+    start_response(f'{response.value} {response.phrase}', [])
+    return [''.encode('utf-8')]
 
   @classmethod
   def mapping(cls):
