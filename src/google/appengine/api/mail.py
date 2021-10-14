@@ -1574,6 +1574,70 @@ class InboundEmailMessage(EmailMessage):
 
   ALLOW_BLANK_EMAIL = True
 
+  @classmethod
+  def from_environ(environ):
+    """Creates an email message by parsing the HTTP request body in `environ`.
+
+    Example (WSGI)::
+
+      def app(environ, start_response):
+        mail_message = mail.InboundEmailMessage.from_environ(request.environ)
+
+        # Do something with the message
+        logging.info('Received greeting from %s: %s' % (mail_message.sender,
+                                                          mail_message.body))
+        start_response("200 OK", [])
+        return “Success”
+
+    Note: Flask (other web frameworks) can directly use
+          `new InboundEmailMessage(request_bytes)` to create the email message
+          if they have the request bytes of an HTTP request.
+
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333).
+    Returns:
+      An InboundEmailMessage object.
+    """
+    try:
+      req_size = int(environ.get('CONTENT_LENGTH', 0))
+    except ValueError:
+      req_size = 0
+
+    request_bytes = environ['wsgi.input'].read(req_size)
+    return InboundEmailMessage(request_bytes)
+
+  @classmethod
+  def from_environ(cls, environ):
+    """Creates an email message by parsing the HTTP request body in `environ`.
+
+    Example (WSGI)::
+
+      def app(environ, start_response):
+        mail_message = mail.InboundEmailMessage.from_environ(request.environ)
+
+        # Do something with the message
+        logging.info('Received greeting from %s: %s' % (mail_message.sender,
+                                                          mail_message.body))
+        start_response("200 OK", [])
+        return “Success”
+
+    Note: Flask (other web frameworks) can directly use
+          `new InboundEmailMessage(request_bytes)` to create the email message
+          if they have the request bytes of an HTTP request.
+
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333).
+    Returns:
+      An InboundEmailMessage object.
+    """
+    try:
+      req_size = int(environ.get('CONTENT_LENGTH', 0))
+    except ValueError:
+      req_size = 0
+
+    request_bytes = environ['wsgi.input'].read(req_size)
+    return InboundEmailMessage(request_bytes)
+
   def update_from_mime_message(self, mime_message):
     """Updates the values of a MIME message.
 
@@ -1689,166 +1753,6 @@ class InboundEmailMessage(EmailMessage):
 parser.Parser
 
 
-
-def parse_email(environ):
-  """Transforms the HTTP request body to an email message.
-
-  Example (Flask)::
-
-    @app.route('/_ah/mail/', methods=['POST'])
-    def receive_mail():
-      mail_message = mail.parse_email(request.environ)
-
-      # Do something with the message
-      logging.info('Received greeting from %s: %s' % (mail_message.sender,
-                                                        mail_message.body))
-      return “Success”
-
-  Args:
-    environ: a WSGI dict describing the HTTP request (See PEP 333).
-  Returns:
-    An InboundEmailMessage object.
-  """
-  try:
-    req_size = int(environ.get('CONTENT_LENGTH', 0))
-  except ValueError:
-    req_size = 0
-
-  request_bytes = environ['wsgi.input'].read(req_size)
-  return InboundEmailMessage(request_bytes)
-
-
-class InboundMailHandler():
-  """Base WSGI class for inbound mail handlers.
-
-  This class leads to easier migration from webapp (now deprecated). It can
-  also be used by raw WSGI apps. The mail.parse_email() function is recommended
-  for Flask apps.
-
-  Example (WSGI)::
-
-    from google.appengine.api import mail
-    from google.appengine.api import wrap_wsgi_app
-    import re
-
-    # Sub-class overrides receive method.
-    class HelloReceiver(InboundMailHandler):
-      def receive(self, mail_message):
-        logging.info('Received greeting from %s: %s' % (mail_message.sender,
-                                                        mail_message.body))
-
-    routes = {
-              '/home': HomeHandler,
-              mail.MAIL_HANDLER_URL_PATTERN: HelloReceiver
-             }
-
-    class WSGIApplication(object):
-      def __call__(self, environ, start_response):
-        path = environ.get('PATH_INFO', '').lstrip('/')
-        for regex, handler in routes:
-          match = re.search(regex, path)
-          if match is not None:
-            callback = handler()  # instantiate the handler class
-            return callback(environ, start_response)
-
-    app = wrap_wsgi_app(WSGIApplication())
-  """
-
-  def post(self, environ):
-    """Transforms a POST request to an email message.
-
-    It calls self.receive(mail_message). receive() needs to be overriden for
-    the subclass.
-
-    Args:
-      environ: a WSGI dict describing the HTTP request (See PEP 333).
-    """
-    self.receive(parse_email(environ))
-
-  def receive(self, mail_message):
-    """Receive an email message.
-
-    Override this method to implement an email receiver.
-
-    Args:
-      mail_message: InboundEmailMessage instance representing a received email.
-    """
-    pass
-
-  @classmethod
-  def mapping(cls):
-    """Convenience method to map handler class to application.
-
-    Returns:
-      Mapping from email URL to inbound mail handler class.
-    """
-    return MAIL_HANDLER_URL_PATTERN, cls
-
-  def __call__(self, environ, start_response):
-    if environ['REQUEST_METHOD'] != 'POST':
-      return ('', http.HTTPStatus.METHOD_NOT_ALLOWED, [('Allow', 'POST')])
-
-    self.post(environ)
-    response = http.HTTPStatus.OK
-    start_response(f'{response.value} {response.phrase}', [])
-    return [''.encode('utf-8')]
-
-
-class BounceNotification(object):
-  """Encapsulates a bounce notification received by the application."""
-
-  def __init__(self, post_vars):
-    """Constructs a new BounceNotification from an HTTP request.
-
-    Properties:
-      original: a dict describing the message that caused the bounce.
-      notification: a dict describing the bounce itself.
-      original_raw_message: the raw message that caused the bounce.
-
-    The 'original' and 'notification' dicts contain the following keys:
-      to, cc, bcc, from, subject, text
-
-    Args:
-      post_vars: a dict-like object containing bounce information.
-          This is typically `flask.request.form` field for Flask users, and the
-          `POST` property in `webob.Request` for WebOb users.
-          The following keys are handled in the dict:
-            original-from
-            original-to
-            original-cc
-            original-bcc
-            original-subject
-            original-text
-            notification-from
-            notification-to
-            notification-cc
-            notification-bcc
-            notification-subject
-            notification-text
-            raw-message
-    """
-    self.__original = {}
-    self.__notification = {}
-    for field in ['to', 'cc', 'bcc', 'from', 'subject', 'text']:
-      self.__original[field] = post_vars.get('original-' + field, '')
-      self.__notification[field] = post_vars.get('notification-' + field, '')
-
-    self.__original_raw_message = InboundEmailMessage(
-        post_vars.get('raw-message', ''))
-
-  @property
-  def original(self):
-    return self.__original
-
-  @property
-  def notification(self):
-    return self.__notification
-
-  @property
-  def original_raw_message(self):
-    return self.__original_raw_message
-
-
 class _MultiDict(MutableMapping):
   """A slim version of the WebOb.MultiDict class.
 
@@ -1949,94 +1853,86 @@ class _MultiDict(MutableMapping):
     return obj
 
 
-def parse_bounce_notification(environ):
-  """Transforms the HTTP request body to a bounce notification object.
+class BounceNotification(object):
+  """Encapsulates a bounce notification received by the application."""
 
-  Example (Flask)::
+  def __init__(self, post_vars):
+    """Constructs a new BounceNotification from an HTTP request.
 
-    @app.route('/_ah/bounce/', methods=['POST'])
-    def receive_bounce_notification():
-      bounce_message = mail.parse_bounce_notification(request.environ)
+    Properties:
+      original: a dict describing the message that caused the bounce.
+      notification: a dict describing the bounce itself.
+      original_raw_message: the raw message that caused the bounce.
 
-      # Do something with the message
-      logging.info('Bounce original: %s', bounce_message.original)
-      logging.info('Bounce notification: %s', bounce_message.notification)
-      return “Success”
+    The 'original' and 'notification' dicts contain the following keys:
+      to, cc, bcc, from, subject, text
 
-  Args:
-    environ: a WSGI dict describing the HTTP request (See PEP 333).
-  Returns:
-    A BounceNotification object.
-  """
-  fs = cgi.FieldStorage(
-      fp=environ['wsgi.input'],
-      environ=environ,
-      keep_blank_values=True,
-      encoding='utf8',
-  )
+    Args:
+      post_vars: a dict-like object containing bounce information.
+          This is typically `flask.request.form` field for Flask users, and the
+          `POST` property in `webob.Request` for WebOb users.
+          The following keys are handled in the dict:
+            original-from
+            original-to
+            original-cc
+            original-bcc
+            original-subject
+            original-text
+            notification-from
+            notification-to
+            notification-cc
+            notification-bcc
+            notification-subject
+            notification-text
+            raw-message
+    """
+    self.__original = {}
+    self.__notification = {}
+    for field in ['to', 'cc', 'bcc', 'from', 'subject', 'text']:
+      self.__original[field] = post_vars.get('original-' + field, '')
+      self.__notification[field] = post_vars.get('notification-' + field, '')
 
-  post_vars = _MultiDict.from_fieldstorage(fs)
-  return BounceNotification(post_vars)
-
-
-class BounceNotificationHandler():
-  """Base class for bounce notification handlers.
-
-  This is a helper class for raw WSGI users. Apps using web frameworks like
-  Flask, Webob, Django etc shouold directly use BounceNotification(post_vars) as
-  web frameworks directly provide the parsed POST form data from a request.
-
-  Example (WSGI)::
-
-    from google.appengine.api import mail
-    from google.appengine.api import wrap_wsgi_app
-    import re
-
-    # Sub-class overrides receive method.
-    class BounceLogger(BounceNotificationHandler):
-      def receive(self, bounce_notification):
-        logging.info('Received bounce from ' %
-            bounce_notification.notification_from)
-
-    routes = {
-              '/home': HomeHandler,
-              mail.BOUNCE_NOTIFICATION_HANDLER_URL_PATH: BounceLogger
-             }
-
-    class WSGIApplication(object):
-      def __call__(self, environ, start_response):
-        path = environ.get('PATH_INFO', '').lstrip('/')
-        for regex, handler in routes:
-          match = re.search(regex, path)
-          if match is not None:
-            callback = handler()  # instantiate the handler class
-            return callback(environ, start_response)
-
-    app = wrap_wsgi_app(WSGIApplication())
-  """
-
-  def post(self, environ):
-    """Transforms POST body to bounce request."""
-
-    self.receive(parse_bounce_notification(environ))
-
-  def receive(self, bounce_notification):
-    pass
-
-  def __call__(self, environ, start_response):
-    if environ['REQUEST_METHOD'] != 'POST':
-      return ('', http.HTTPStatus.METHOD_NOT_ALLOWED, [('Allow', 'POST')])
-
-    self.post(environ)
-    response = http.HTTPStatus.OK
-    start_response(f'{response.value} {response.phrase}', [])
-    return [''.encode('utf-8')]
+    self.__original_raw_message = InboundEmailMessage(
+        post_vars.get('raw-message', ''))
 
   @classmethod
-  def mapping(cls):
-    """Convenience method to map handler class to application.
+  def from_environ(cls, environ):
+    """Transforms the HTTP request body to a bounce notification object.
 
+    Example(Flask)::
+
+      @app.route('/_ah/bounce/', methods=['POST'])
+      def receive_bounce_notification():
+        bounce_message = mail.BounceNotification.from_environ(request.environ)
+
+        # Do something with the message
+        logging.info('Bounce original: %s', bounce_message.original)
+        logging.info('Bounce notification: %s', bounce_message.notification)
+        return “Success”
+
+    Args:
+      environ: a WSGI dict describing the HTTP request (See PEP 333).
     Returns:
-      Mapping from bounce URL to bounce notification handler class.
+      A BounceNotification object.
     """
-    return BOUNCE_NOTIFICATION_HANDLER_URL_PATH, cls
+    fs = cgi.FieldStorage(
+        fp=environ['wsgi.input'],
+        environ=environ,
+        keep_blank_values=True,
+        encoding='utf8',
+    )
+
+    post_vars = _MultiDict.from_fieldstorage(fs)
+    return BounceNotification(post_vars)
+
+  @property
+  def original(self):
+    return self.__original
+
+  @property
+  def notification(self):
+    return self.__notification
+
+  @property
+  def original_raw_message(self):
+    return self.__original_raw_message
