@@ -59,6 +59,8 @@ from google.appengine.runtime import apiproxy_errors
 
 
 
+INCOMING_MAIL_URL_PATTERN = '/_ah/mail/.+'
+BOUNCE_NOTIFICATION_URL_PATH = '/_ah/bounce'
 
 
 
@@ -1575,38 +1577,6 @@ class InboundEmailMessage(EmailMessage):
   ALLOW_BLANK_EMAIL = True
 
   @classmethod
-  def from_environ(environ):
-    """Creates an email message by parsing the HTTP request body in `environ`.
-
-    Example (WSGI)::
-
-      def app(environ, start_response):
-        mail_message = mail.InboundEmailMessage.from_environ(request.environ)
-
-        # Do something with the message
-        logging.info('Received greeting from %s: %s' % (mail_message.sender,
-                                                          mail_message.body))
-        start_response("200 OK", [])
-        return “Success”
-
-    Note: Flask (other web frameworks) can directly use
-          `new InboundEmailMessage(request_bytes)` to create the email message
-          if they have the request bytes of an HTTP request.
-
-    Args:
-      environ: a WSGI dict describing the HTTP request (See PEP 333).
-    Returns:
-      An InboundEmailMessage object.
-    """
-    try:
-      req_size = int(environ.get('CONTENT_LENGTH', 0))
-    except ValueError:
-      req_size = 0
-
-    request_bytes = environ['wsgi.input'].read(req_size)
-    return InboundEmailMessage(request_bytes)
-
-  @classmethod
   def from_environ(cls, environ):
     """Creates an email message by parsing the HTTP request body in `environ`.
 
@@ -1810,7 +1780,6 @@ class _MultiDict(MutableMapping):
     This mimics functionality in webob.MultiDict without taking a dependency
     on the WebOb package -
     https://github.com/Pylons/webob/blob/259230aa2b8b9cf675c996e157c5cf021c256059/src/webob/multidict.py#L57
-    However
 
     Args:
       fs: cgi.FieldStorage object correspoinding to a POST request
@@ -1868,32 +1837,57 @@ class BounceNotification(object):
       to, cc, bcc, from, subject, text
 
     Args:
-      post_vars: a dict-like object containing bounce information.
-          This is typically `flask.request.form` field for Flask users, and the
-          `POST` property in `webob.Request` for WebOb users.
-          The following keys are handled in the dict:
-            original-from
-            original-to
-            original-cc
-            original-bcc
-            original-subject
-            original-text
-            notification-from
-            notification-to
-            notification-cc
-            notification-bcc
-            notification-subject
-            notification-text
-            raw-message
+      post_vars: a dictionary with keys as strings, where values can be either
+        of text type or a list of values depending on the key. This should
+        contain bounce information, and the following keys are handled:
+          original-from
+          original-to
+          original-cc
+          original-bcc
+          original-subject
+          original-text
+          notification-from
+          notification-to
+          notification-cc
+          notification-bcc
+          notification-subject
+          notification-text
+          raw-message
+        For the keys ending with 'to', 'cc' or 'bcc', the values can be lists.
+        For 'subject, 'text' and 'raw-message', the value should be of a text
+        type. If a list is passed as the value, only the first item is read.
+
+        Flask- This is typically the `flask.request.form` field (if
+        the user wants to pass single (non-list) values for each key), or
+        'flask.request.form.lists()' if multiple values need to be retained.
+
+        Webob- `webob.Request.POST` can be used for single values, and
+        `webob.Request.POST.dict_of_lists()` for multiple values.
+
+        Django- `request.POST` can be used for single values, and
+        `request.POST.lists()` can be used for multiple values.
     """
     self.__original = {}
     self.__notification = {}
-    for field in ['to', 'cc', 'bcc', 'from', 'subject', 'text']:
+    for field in ['to', 'cc', 'bcc']:
       self.__original[field] = post_vars.get('original-' + field, '')
       self.__notification[field] = post_vars.get('notification-' + field, '')
 
-    self.__original_raw_message = InboundEmailMessage(
-        post_vars.get('raw-message', ''))
+    for field in ['from', 'subject', 'text']:
+      original_val = post_vars.get('original-' + field, '')
+      if isinstance(original_val, list):
+        original_val = original_val[0] if original_val else ''
+      self.__original[field] = original_val
+
+      notification_val = post_vars.get('notification-' + field, '')
+      if isinstance(notification_val, list):
+        notification_val = notification_val[0] if notification_val else ''
+      self.__notification[field] = notification_val
+
+    raw_message = post_vars.get('raw-message', '')
+    if isinstance(raw_message, list):
+      raw_message = raw_message[0] if raw_message else ''
+    self.__original_raw_message = InboundEmailMessage(raw_message)
 
   @classmethod
   def from_environ(cls, environ):
